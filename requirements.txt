@@ -1,7 +1,7 @@
-streamlit==1.25.0
-torch>=1.12.0
-opencv-python-headless
-numpy
-Pillow
 requests
-ultralytics>=8.0.0  # optional: if your YOLO models are ultralytics-compatible
+ultralytics
+opencv-python-headless
+torch
+torchvision
+Pillow
+numpy
