@@ -66,6 +66,7 @@ confidence_threshold = st.sidebar.slider(
     step=0.05,
 )
 
+# NOTE: IoU slider kept for model NMS control (not displayed as metric)
 iou_threshold = st.sidebar.slider(
     "IoU Threshold",
     min_value=0.1,
@@ -104,7 +105,7 @@ manual_mm_per_pixel = st.sidebar.number_input(
 
 
 # =========================================================
-# DOWNLOAD MODEL FROM PRIVATE GITHUB
+# DOWNLOAD MODEL FROM GITHUB
 # =========================================================
 def download_from_github(repo, filepath, dest_path):
     headers = {}
@@ -140,9 +141,7 @@ def get_model(local_name, repo_path):
         return YOLO(str(source_path))
 
     if not PRIVATE_REPO:
-        raise RuntimeError(
-            f"Model not found locally and PRIVATE_REPO is not set: {repo_path}"
-        )
+        raise RuntimeError(f"Model not found: {repo_path}")
 
     download_from_github(PRIVATE_REPO, repo_path, local_file)
     return YOLO(str(local_file))
@@ -190,10 +189,7 @@ def create_clean_mask(res_crack):
     if len(masks) == 0:
         return None
 
-    combined_mask = np.zeros(
-        (masks[0].shape[0], masks[0].shape[1]),
-        dtype=np.uint8,
-    )
+    combined_mask = np.zeros(masks[0].shape, dtype=np.uint8)
 
     for mask in masks:
         binary = (mask > 0.5).astype(np.uint8) * 255
@@ -209,51 +205,23 @@ def create_clean_mask(res_crack):
 # =========================================================
 # DRAW RESULTS
 # =========================================================
-def draw_combined_results(
-    img,
-    res_coin,
-    crack_mask,
-    width_mm=None,
-    max_width_point=None,
-):
+def draw_combined_results(img, res_coin, crack_mask, width_mm, max_width_point):
     output = img.copy()
 
-    # COIN BOX
     if res_coin.boxes is not None and len(res_coin.boxes) > 0:
         for box in res_coin.boxes.xyxy.cpu().numpy():
             x1, y1, x2, y2 = map(int, box)
             cv2.rectangle(output, (x1, y1), (x2, y2), (0, 255, 0), 3)
-            cv2.putText(
-                output,
-                "Coin",
-                (x1, y1 - 10),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.8,
-                (0, 255, 0),
-                2,
-            )
 
-    # CRACK MASK
     if crack_mask is not None:
         red_mask = np.zeros_like(output)
         red_mask[:, :, 2] = crack_mask
         output = cv2.addWeighted(output, 1.0, red_mask, 0.4, 0)
 
-    # MAX WIDTH POINT
     if max_width_point is not None:
         x, y = max_width_point
         cv2.circle(output, (x, y), 10, (0, 255, 0), -1)
-        cv2.putText(
-            output,
-            "Max Width",
-            (x + 15, y - 10),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (0, 255, 0),
-            2,
-        )
 
-    # WIDTH TEXT
     if width_mm is not None:
         cv2.putText(
             output,
@@ -269,26 +237,12 @@ def draw_combined_results(
 
 
 # =========================================================
-# MAIN TITLE
+# MAIN UI
 # =========================================================
 st.title("🏗️ StructInsight AI")
-st.markdown(
-    """
-AI-powered structural crack detection and severity assessment using YOLOv11 segmentation models.
-"""
-)
 
-# =========================================================
-# IMAGE UPLOAD
-# =========================================================
-uploaded_file = st.file_uploader(
-    "Upload Concrete Image",
-    type=["jpg", "jpeg", "png"],
-)
+uploaded_file = st.file_uploader("Upload Concrete Image", type=["jpg", "jpeg", "png"])
 
-# =========================================================
-# PROCESS IMAGE
-# =========================================================
 if uploaded_file:
     image = Image.open(uploaded_file).convert("RGB")
     img_np = np.array(image)
@@ -296,47 +250,22 @@ if uploaded_file:
     st.image(img_np, caption="Uploaded Image", width="stretch")
 
     try:
-        # Load Models
-        with st.status("Loading AI Models...") as status:
+        with st.status("Loading AI Models..."):
             crack_model = get_model("crack_model.pt", CRACK_MODEL_PATH)
             coin_model = get_model("coin_model.pt", COIN_MODEL_PATH)
 
-            status.update(
-                label="Models Loaded Successfully!",
-                state="complete",
-            )
+        res_coin = run_yolo_predict(coin_model, img_np, confidence_threshold, iou_threshold)
+        res_crack = run_yolo_predict(crack_model, img_np, confidence_threshold, iou_threshold)
 
-        # Predictions
-        res_coin = run_yolo_predict(
-            coin_model,
-            img_np,
-            confidence_threshold,
-            iou_threshold,
-        )
-
-        res_crack = run_yolo_predict(
-            crack_model,
-            img_np,
-            confidence_threshold,
-            iou_threshold,
-        )
-
-        # =================================================
-        # COIN DETECTION
-        # =================================================
+        # COIN
         coin_px = None
         if res_coin.boxes is not None and len(res_coin.boxes) > 0:
             boxes = res_coin.boxes.xyxy.cpu().numpy()
-            largest_box = max(
-                boxes,
-                key=lambda b: (b[2] - b[0]) * (b[3] - b[1]),
-            )
-            x1, y1, x2, y2 = map(int, largest_box)
-            coin_px = ((x2 - x1) + (y2 - y1)) / 2
+            b = max(boxes, key=lambda x: (x[2]-x[0])*(x[3]-x[1]))
+            x1, y1, x2, y2 = map(int, b)
+            coin_px = ((x2-x1) + (y2-y1)) / 2
 
-        # =================================================
-        # CRACK MASK
-        # =================================================
+        # CRACK
         combined_mask = create_clean_mask(res_crack)
         crack_px = None
         max_width_point = None
@@ -344,9 +273,7 @@ if uploaded_file:
         if combined_mask is not None:
             crack_px, max_width_point = mask_max_width_pixels(combined_mask)
 
-        # =================================================
         # CALIBRATION
-        # =================================================
         width_mm = None
         mm_per_pixel = None
 
@@ -355,157 +282,50 @@ if uploaded_file:
         elif coin_px is not None:
             mm_per_pixel = coin_diameter_mm / coin_px
 
-        if mm_per_pixel is not None and crack_px is not None:
-            measured_width = crack_px * mm_per_pixel
-            width_mm = measured_width * calibration_factor
+        if mm_per_pixel and crack_px:
+            width_mm = crack_px * mm_per_pixel * calibration_factor
 
-        # =================================================
-        # DRAW RESULTS
-        # =================================================
+        # OUTPUT IMAGE
         result_image = draw_combined_results(
-            img_np,
-            res_coin,
-            combined_mask,
-            width_mm,
-            max_width_point,
+            img_np, res_coin, combined_mask, width_mm, max_width_point
         )
 
-        st.subheader("Detection Result")
-        st.image(result_image, caption="AI Detection Output", width="stretch")
+        st.image(result_image, caption="Detection Result", width="stretch")
 
         # =================================================
-        # METRICS
+        # METRICS (NO IOU)
         # =================================================
-        col1, col2, col3 = st.columns(3)
 
-        with col1:
-            st.metric("Confidence", f"{confidence_threshold:.2f}")
+        avg_conf = None
+        conf_list = []
 
-        with col2:
-            st.metric("IoU Threshold", f"{iou_threshold:.2f}")
+        if res_crack.boxes is not None and len(res_crack.boxes) > 0:
+            conf_list.extend(res_crack.boxes.conf.cpu().numpy())
 
-        with col3:
-            if mm_per_pixel is not None:
-                st.metric("Calibration", f"{mm_per_pixel:.4f} mm/pixel")
-            else:
-                st.metric("Calibration", "Unavailable")
+        if res_coin.boxes is not None and len(res_coin.boxes) > 0:
+            conf_list.extend(res_coin.boxes.conf.cpu().numpy())
 
-        col4, col5 = st.columns(2)
+        if conf_list:
+            avg_conf = float(np.mean(conf_list))
 
-        with col4:
-            st.metric("Calibration Factor", f"{calibration_factor:.2f}")
+        seg_score = None
+        if combined_mask is not None:
+            seg_score = np.sum(combined_mask > 0) / combined_mask.size
 
-        with col5:
-            if width_mm is not None:
-                st.metric("Calibrated Width", f"{width_mm:.2f} mm")
-            else:
-                st.metric("Calibrated Width", "Unavailable")
+        c1, c2, c3 = st.columns(3)
 
-        # =================================================
-        # WIDTH + SEVERITY
-        # =================================================
-        if width_mm is not None:
-            st.metric("Estimated Crack Width", f"{width_mm:.2f} mm")
+        with c1:
+            st.metric("Model Confidence", f"{avg_conf:.2f}" if avg_conf else "N/A")
 
-            if width_mm < 0.1:
-                severity = "Hairline"
-                description = "Barely visible; usually non-structural; monitor periodically."
-                recommendation = "Routine monitoring recommended."
+        with c2:
+            st.metric("Crack Coverage", f"{seg_score:.4f}" if seg_score else "N/A")
 
-            elif 0.1 <= width_mm < 0.3:
-                severity = "Minor / Fine"
-                description = (
-                    "Generally acceptable in dry/interior areas; "
-                    "surface sealing may be required in wet environments."
-                )
-                recommendation = "Consider protective sealing if exposed to moisture."
+        with c3:
+            st.metric("Calibration", f"{mm_per_pixel:.4f}" if mm_per_pixel else "N/A")
 
-            elif 0.3 <= width_mm <= 0.5:
-                severity = "Moderate"
-                description = (
-                    "Exceeds most ACI crack-width limits; "
-                    "may indicate overstress or durability concerns."
-                )
-                recommendation = "Engineering evaluation recommended."
-
-            else:
-                severity = "Severe"
-                description = (
-                    "Significant distress with possible risk of "
-                    "corrosion or structural deterioration."
-                )
-                recommendation = (
-                    "Immediate repair required (e.g., epoxy injection or rehabilitation)."
-                )
-
-            st.subheader("Structural Condition Assessment")
-
-            c1, c2 = st.columns(2)
-
-            with c1:
-                st.metric("Severity Level", severity)
-
-            with c2:
-                st.metric("Measured Width", f"{width_mm:.2f} mm")
-
-            st.warning(f"Description: {description}")
-            st.success(f"Recommended Action: {recommendation}")
-
-        else:
-            st.error(
-                "Detection failed. Possible reasons:\n"
-                "- Coin not detected\n"
-                "- Crack not segmented properly\n"
-                "- Poor image quality"
-            )
+        # WIDTH
+        if width_mm:
+            st.success(f"Estimated Crack Width: {width_mm:.2f} mm")
 
     except Exception as e:
-        st.error(f"Error: {e}")
-
-
-# =========================================================
-# ABOUT SECTION
-# =========================================================
-st.markdown("---")
-st.header("📘 About the Project")
-st.markdown(
-    """
-### Project Overview
-
-This project focuses on the development of an advanced deep learning system for automated crack detection and severity classification using **YOLOv11**. Traditional structural assessments require manual visual inspections, which can be time-consuming, subjective, and difficult to scale across large infrastructures.
-
-By leveraging state-of-the-art computer vision algorithms, **StructInsight AI** achieves real-time detection capabilities with high precision. The system not only identifies cracks in concrete but also provides actionable insights through severity classification.
-
-This allows engineers and maintenance teams to:
-
-- Quickly assess structural integrity
-- Prioritize repair work
-- Reduce maintenance costs
-- Improve inspection efficiency
-- Enhance public safety
-
-This research highlights the critical importance of integrating AI technologies into civil engineering, showcasing how emerging tools can transform and modernize traditional infrastructure monitoring methods.
-"""
-)
-
-st.markdown("---")
-st.header("👨‍🔬 Research Team")
-st.markdown(
-    """
-### Project Lead
-**Hasnain Haroon**
-
-Developed as a Final Year Project (FYP) within the Department of Civil Engineering at COMSATS University Islamabad, Wah Campus.
-
----
-
-### Project Supervisor
-**Engr. Sandeerah Choudhary**
-
----
-
-### Key Team Members
-- **Liza Liaqat**
-- **Ammar Faheem Khawaja**
-"""
-)
+        st.error(str(e))
