@@ -329,3 +329,50 @@ if uploaded_file:
 
     except Exception as e:
         st.error(str(e))
+
+# =========================================================
+# ABOUT SECTION
+# =========================================================
+st.markdown("---")
+st.header("📘 About the Project")
+st.markdown(
+    """
+### Project Overview
+
+This project focuses on the development of an advanced deep learning system for automated crack detection and severity classification using **YOLOv11**. Traditional structural assessments require manual visual inspections, which can be time-consuming, subjective, and difficult to scale across large infrastructures.
+
+By leveraging state-of-the-art computer vision algorithms, **StructInsight AI** achieves real-time detection capabilities with high precision. The system not only identifies cracks in concrete but also provides actionable insights through severity classification.
+
+This allows engineers and maintenance teams to:
+
+- Quickly assess structural integrity
+- Prioritize repair work
+- Reduce maintenance costs
+- Improve inspection efficiency
+- Enhance public safety
+
+This research highlights the critical importance of integrating AI technologies into civil engineering, showcasing how emerging tools can transform and modernize traditional infrastructure monitoring methods.
+"""
+)
+
+st.markdown("---")
+st.header("👨‍🔬 Research Team")
+st.markdown(
+    """
+### Project Lead
+**Hasnain Haroon**
+
+Developed as a Final Year Project (FYP) within the Department of Civil Engineering at COMSATS University Islamabad, Wah Campus.
+
+---
+
+### Project Supervisor
+**Engr. Sandeerah Choudhary**
+
+---
+
+### Key Team Members
+- **Liza Liaqat**
+- **Ammar Faheem Khawaja**
+"""
+)
