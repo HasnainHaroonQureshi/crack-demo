@@ -9,13 +9,6 @@ import torch
 from PIL import Image
 from ultralytics import YOLO
 
-
-# =========================================================
-# PAGE CONFIG
-# =========================================================
-st.title("🏗️ StructInsight AI")
-st.subheader("AI-powered structural crack detection and severity assessment")
-
 # =========================================================
 # HELPERS
 # =========================================================
@@ -268,7 +261,10 @@ def draw_combined_results(
 # =========================================================
 # MAIN TITLE
 # =========================================================
-st.title("🏗️ Concrete Crack Detection AI")
+# =========================================================
+# MAIN TITLE
+# =========================================================
+st.title("🏗️ StructInsight AI")
 st.markdown(
     """
 AI-powered structural crack detection and severity assessment using YOLOv11 segmentation models.
