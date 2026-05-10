@@ -306,7 +306,7 @@ if uploaded_file:
     image  = Image.open(uploaded_file).convert("RGB")
     img_np = np.array(image)
 
-    st.image(img_np, caption="Uploaded image", width="100%")
+    st.image(img_np, caption="Uploaded image", width="stretch")
 
     try:
         # Load models
@@ -358,7 +358,7 @@ if uploaded_file:
             img_np, res_coin, combined_mask, width_mm, max_width_point
         )
         st.subheader("Detection Output")
-        st.image(result_image, caption="AI-annotated result", width="100%")
+        st.image(result_image, caption="AI-annotated result", width="stretch")
 
         st.markdown("---")
         st.subheader("Analysis Metrics")
