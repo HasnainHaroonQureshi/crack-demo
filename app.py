@@ -13,12 +13,8 @@ from ultralytics import YOLO
 # =========================================================
 # PAGE CONFIG
 # =========================================================
-st.set_page_config(
-    page_title="StructInsight AI",
-    page_icon="🏗️",
-    layout="wide",
-)
-
+st.title("🏗️ StructInsight AI")
+st.subheader("AI-powered structural crack detection and severity assessment")
 
 # =========================================================
 # HELPERS
