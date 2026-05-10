@@ -23,10 +23,11 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+    
 
+    /* System font stack — no external network requests */
     html, body, [class*="css"] {
-        font-family: 'IBM Plex Sans', sans-serif;
+        font-family: ui-sans-serif, 'Segoe UI', system-ui, -apple-system, sans-serif;
     }
 
     /* Top header strip */
@@ -63,7 +64,7 @@ st.markdown(
         border-top: 3px solid #f59e0b;
     }
     [data-testid="stMetricLabel"] { color: #64748b !important; font-size: 0.78rem !important; text-transform: uppercase; letter-spacing: 0.05em; }
-    [data-testid="stMetricValue"] { color: #0f172a !important; font-family: 'IBM Plex Mono', monospace !important; font-size: 1.3rem !important; }
+    [data-testid="stMetricValue"] { color: #0f172a !important; font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace !important; font-size: 1.3rem !important; }
 
     /* Dividers */
     hr { border-color: #e2e8f0; }
@@ -305,7 +306,7 @@ if uploaded_file:
     image  = Image.open(uploaded_file).convert("RGB")
     img_np = np.array(image)
 
-    st.image(img_np, caption="Uploaded image", use_column_width=True)
+    st.image(img_np, caption="Uploaded image", width="100%")
 
     try:
         # Load models
@@ -357,7 +358,7 @@ if uploaded_file:
             img_np, res_coin, combined_mask, width_mm, max_width_point
         )
         st.subheader("Detection Output")
-        st.image(result_image, caption="AI-annotated result", use_column_width=True)
+        st.image(result_image, caption="AI-annotated result", width="100%")
 
         st.markdown("---")
         st.subheader("Analysis Metrics")
@@ -449,7 +450,7 @@ if uploaded_file:
                              color:#64748b; margin-bottom:0.4rem;">Severity Level</div>
                         <div style="font-size:1.6rem; font-weight:700; color:{badge_color};">{severity}</div>
                         <div style="font-size:1.1rem; color:#0f172a; margin-top:0.3rem;
-                             font-family:'IBM Plex Mono', monospace;">{width_mm:.2f} mm</div>
+                             font-family:ui-monospace, 'Cascadia Code', 'Fira Code', monospace;">{width_mm:.2f} mm</div>
                     </div>
                     """,
                     unsafe_allow_html=True,
