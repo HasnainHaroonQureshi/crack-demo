@@ -22,9 +22,9 @@ except Exception:
 GITHUB_USER = st.secrets.get("github_user")
 GITHUB_TOKEN = st.secrets.get("github_token")
 PRIVATE_REPO = st.secrets.get("private_repo")  # e.g., "youruser/models-private"
-CRACK_MODEL_PATH = st.secrets.get("crack_model_path", "crack_yolov11s_seg.pt")
-COIN_MODEL_PATH  = st.secrets.get("coin_model_path", "coin_yolov11s_seg.pt")
-COIN_DIAMETER_MM = float(st.secrets.get("coin_diameter_mm", "20.0"))  # set actual coin diameter
+CRACK_MODEL_PATH = st.secrets.get("crack_model_path", "Crackdetection_model.pt")
+COIN_MODEL_PATH  = st.secrets.get("coin_model_path", "Coindetection_model.pt")
+COIN_DIAMETER_MM = float(st.secrets.get("coin_diameter_mm", "18.5"))  # set actual coin diameter
 
 CACHE_DIR = Path("models_cache")
 CACHE_DIR.mkdir(exist_ok=True)
@@ -32,19 +32,22 @@ CACHE_DIR.mkdir(exist_ok=True)
 # ---------- Helper: download file from private GitHub repo ----------
 def download_from_github(repo, filepath, dest_path):
     """
-    Download a file from a private GitHub repo using a PAT.
+    Improved download for large model files using the 'Raw' URL.
     """
-    url = f"https://api.github.com/repos/{repo}/contents/{filepath}"
+    # Use the ://githubusercontent.com URL for large binary files
+    url = f"https://://githubusercontent.com/{repo}/main/{filepath}"
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-    r = requests.get(url, headers=headers)
+    
+    r = requests.get(url, headers=headers, stream=True)
     if r.status_code != 200:
-        raise RuntimeError(f"GitHub download failed: {r.status_code} {r.text}")
-    data = r.json()
-    import base64
-    content = base64.b64decode(data["content"])
+        raise RuntimeError(f"Download failed: {r.status_code}. Double-check your Token and File Names.")
+    
     with open(dest_path, "wb") as f:
-        f.write(content)
+        for chunk in r.iter_content(chunk_size=8192):
+            f.write(chunk)
     return dest_path
+
+
 
 # ---------- Load model (with caching) ----------
 def get_model(local_name, repo_path):
