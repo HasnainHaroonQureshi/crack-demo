@@ -416,7 +416,7 @@ def _free_memory():
     """Force-clear unreferenced tensors/arrays between inference runs."""
     gc.collect()
 
-def _resize_for_inference(img_np, max_dim=640):
+def _resize_for_inference(img_np, max_dim=1024):
     """Downscale longest side to max_dim before inference to cap RAM usage."""
     h, w = img_np.shape[:2]
     scale = min(max_dim / max(h, w), 1.0)
@@ -427,11 +427,11 @@ def _resize_for_inference(img_np, max_dim=640):
 
 def run_yolo_predict(model, img, conf_threshold, iou_thresh):
     # Shrink image first so each model run uses ~4x less RAM
-    small   = _resize_for_inference(img, max_dim=640)
+    small   = _resize_for_inference(img, max_dim=1024)
     pil_img = Image.fromarray(small)
     results = model.predict(
         source=pil_img,
-        imgsz=640,
+        imgsz=1024,
         conf=conf_threshold,
         iou=iou_thresh,
         retina_masks=True,
@@ -448,16 +448,71 @@ def run_yolo_predict(model, img, conf_threshold, iou_thresh):
     return result
 
 # =========================================================
-# WIDTH CALCULATION
+# WIDTH CALCULATION — perpendicular cross-section method
 # =========================================================
 def mask_max_width_pixels(mask):
-    mask = (mask > 0).astype(np.uint8)
-    dist = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
-    max_radius   = dist.max()
-    max_width    = max_radius * 2
-    max_loc      = np.unravel_index(np.argmax(dist), dist.shape)
-    y, x         = max_loc
-    return max_width, (x, y)
+    """
+    Returns (max_width_px, (x, y)) where max_width_px is the widest
+    perpendicular cross-section of the crack mask, measured by:
+      1. Skeletonising the mask to find the crack centreline.
+      2. At each skeleton pixel, casting a perpendicular ray in both
+         directions until it exits the mask.
+      3. Returning the longest such measurement and the pixel where it occurs.
+    Falls back to the distance-transform estimate if skeleton fails.
+    """
+    binary = (mask > 0).astype(np.uint8)
+
+    # -- skeletonise (Zhang-Suen thinning via morphology) --------------------
+    skel   = np.zeros_like(binary)
+    temp   = binary.copy()
+    kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))
+    while True:
+        eroded   = cv2.erode(temp, kernel)
+        opened   = cv2.dilate(eroded, kernel)
+        skel     = cv2.bitwise_or(skel, cv2.subtract(temp, opened))
+        temp     = eroded.copy()
+        if cv2.countNonZero(temp) == 0:
+            break
+
+    skel_pts = np.column_stack(np.where(skel > 0))   # (row, col) pairs
+
+    if len(skel_pts) < 2:
+        # fallback: distance transform
+        dist      = cv2.distanceTransform(binary, cv2.DIST_L2, 5)
+        max_r     = float(dist.max())
+        loc       = np.unravel_index(np.argmax(dist), dist.shape)
+        return max_r * 2.0, (int(loc[1]), int(loc[0]))
+
+    # -- estimate local orientation via PCA on skeleton points ---------------
+    skel_f   = skel_pts.astype(np.float32)
+    mean_pt  = skel_f.mean(axis=0)
+    _, _, vt = np.linalg.svd(skel_f - mean_pt, full_matrices=False)
+    tang     = vt[0]                          # principal direction (tangent)
+    perp     = np.array([-tang[1], tang[0]])  # perpendicular direction
+
+    h, w     = binary.shape
+    max_width = 0.0
+    best_pt   = (int(mean_pt[1]), int(mean_pt[0]))
+
+    # sample every 4th skeleton pixel for speed
+    for pt in skel_pts[::4]:
+        r, c = pt
+        # cast ray in +perp and -perp directions
+        width = 0.0
+        for sign in (1, -1):
+            for step in range(1, max(h, w)):
+                nr = int(round(r + sign * step * perp[0]))
+                nc = int(round(c + sign * step * perp[1]))
+                if nr < 0 or nr >= h or nc < 0 or nc >= w:
+                    break
+                if binary[nr, nc] == 0:
+                    break
+                width += 1.0
+        if width > max_width:
+            max_width = width
+            best_pt   = (c, r)   # (x, y) for cv2
+
+    return max_width, best_pt
 
 # =========================================================
 # CLEAN MASK
@@ -489,32 +544,70 @@ def create_clean_mask(res_crack, orig_h, orig_w):
 # =========================================================
 def draw_combined_results(img, coin_boxes, crack_mask, width_mm=None, max_width_point=None):
     output = img.copy()
+    h, w   = output.shape[:2]
+    thick  = max(2, h // 400)   # scale line thickness to image size
+    font_s = max(0.6, h / 1200)
 
-    # Coin bounding box — coin_boxes is a plain Python list of [x1,y1,x2,y2]
+    # ── Crack mask overlay (semi-transparent red) ──────────────────────────
+    if crack_mask is not None:
+        red_layer          = output.copy()
+        crack_bool         = crack_mask > 0
+        red_layer[crack_bool] = [220, 50, 50]   # BGR red
+        output = cv2.addWeighted(output, 0.65, red_layer, 0.35, 0)
+
+        # Draw crack contours for crisp edges
+        contours, _ = cv2.findContours(crack_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(output, contours, -1, (255, 80, 80), thick)
+
+    # ── Coin detection overlay ─────────────────────────────────────────────
     if coin_boxes:
         for box in coin_boxes:
             x1, y1, x2, y2 = map(int, box)
-            cv2.rectangle(output, (x1, y1), (x2, y2), (0, 255, 0), 3)
-            cv2.putText(output, "Coin", (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+            cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+            rx, ry = (x2 - x1) // 2, (y2 - y1) // 2
+            radius = (rx + ry) // 2
 
-    # Crack mask overlay
-    if crack_mask is not None:
-        red_mask = np.zeros_like(output)
-        red_mask[:, :, 2] = crack_mask
-        output = cv2.addWeighted(output, 1.0, red_mask, 0.4, 0)
+            # Semi-transparent green fill
+            overlay = output.copy()
+            cv2.circle(overlay, (cx, cy), radius, (0, 220, 100), -1)
+            output = cv2.addWeighted(output, 0.85, overlay, 0.15, 0)
 
-    # Max-width marker
+            # Circle outline
+            cv2.circle(output, (cx, cy), radius, (0, 220, 100), thick + 1)
+            # Cross-hair centre
+            cv2.line(output, (cx - 12, cy), (cx + 12, cy), (0, 220, 100), thick)
+            cv2.line(output, (cx, cy - 12), (cx, cy + 12), (0, 220, 100), thick)
+
+            # Label with background
+            label     = "REF COIN"
+            (lw, lh), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_s * 0.75, thick)
+            lx, ly    = x1, max(y1 - 10, lh + 6)
+            cv2.rectangle(output, (lx, ly - lh - 4), (lx + lw + 8, ly + 4), (0, 220, 100), -1)
+            cv2.putText(output, label, (lx + 4, ly),
+                        cv2.FONT_HERSHEY_SIMPLEX, font_s * 0.75, (0, 0, 0), thick)
+
+    # ── Max-width point ────────────────────────────────────────────────────
     if max_width_point is not None:
         x, y = max_width_point
-        cv2.circle(output, (x, y), 10, (0, 255, 0), -1)
-        cv2.putText(output, "Max Width", (x + 15, y - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        cv2.circle(output, (x, y), 14, (255, 220, 0), -1)
+        cv2.circle(output, (x, y), 14, (255, 255, 255), 2)
+        label     = "MAX WIDTH"
+        (lw, lh), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_s * 0.75, thick)
+        lx = min(x + 18, w - lw - 10)
+        ly = max(y - 10, lh + 6)
+        cv2.rectangle(output, (lx - 2, ly - lh - 4), (lx + lw + 6, ly + 4), (40, 40, 40), -1)
+        cv2.putText(output, label, (lx + 2, ly),
+                    cv2.FONT_HERSHEY_SIMPLEX, font_s * 0.75, (255, 220, 0), thick)
 
-    # Width annotation
+    # ── Width annotation (top-left panel) ─────────────────────────────────
     if width_mm is not None:
-        cv2.putText(output, f"Width: {width_mm:.2f} mm", (30, 50),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 80, 0), 3)
+        text      = f"Crack Width: {width_mm:.3f} mm"
+        (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_s, thick + 1)
+        pad       = 12
+        cv2.rectangle(output, (20, 20), (20 + tw + pad * 2, 20 + th + pad * 2), (15, 15, 15), -1)
+        cv2.rectangle(output, (20, 20), (20 + tw + pad * 2, 20 + th + pad * 2), (255, 220, 0), 2)
+        cv2.putText(output, text, (20 + pad, 20 + pad + th),
+                    cv2.FONT_HERSHEY_SIMPLEX, font_s, (255, 220, 0), thick + 1)
 
     return output
 
@@ -594,13 +687,23 @@ if uploaded_file:
 
         # Extract what we need from coin result immediately, then free it
         coin_px    = None
-        coin_boxes = []   # kept only for drawing
+        coin_boxes = []   # scaled to original image size for drawing
+        orig_h, orig_w = img_np.shape[:2]
         if res_coin is not None and res_coin.boxes is not None and len(res_coin.boxes) > 0:
-            boxes      = res_coin.boxes.xyxy.cpu().numpy()
-            coin_boxes = boxes.tolist()
-            largest    = max(boxes, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
+            boxes_raw = res_coin.boxes.xyxy.cpu().numpy()  # in inference (1024-scaled) coords
+
+            # Scale factor: inference image was resized so longest side = 1024
+            infer_longest = 1024.0
+            orig_longest  = float(max(orig_h, orig_w))
+            scale_back    = orig_longest / infer_longest
+
+            boxes_orig = boxes_raw * scale_back   # back to original pixel space
+            coin_boxes = boxes_orig.tolist()
+
+            largest    = max(boxes_orig, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
             x1, y1, x2, y2 = map(int, largest)
-            coin_px    = ((x2 - x1) + (y2 - y1)) / 2
+            # coin_px measured in original-image pixels (consistent with mask which is also orig size)
+            coin_px    = ((x2 - x1) + (y2 - y1)) / 2.0
         del res_coin
         _free_memory()   # free coin tensors before crack model runs
 
@@ -614,7 +717,6 @@ if uploaded_file:
         # -------------------------------------------------
         # CRACK SEGMENTATION → extract everything to numpy, then free
         # -------------------------------------------------
-        orig_h, orig_w  = img_np.shape[:2]
         combined_mask   = create_clean_mask(res_crack, orig_h, orig_w)
         avg_conf = None
         if res_crack.boxes is not None and len(res_crack.boxes) > 0:
