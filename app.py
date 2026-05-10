@@ -1,3 +1,4 @@
+import gc
 import os
 from pathlib import Path
 import cv2
@@ -200,23 +201,39 @@ def get_model(local_name, repo_path):
 # =========================================================
 # YOLO PREDICTION
 # =========================================================
+def _free_memory():
+    """Force-clear unreferenced tensors/arrays between inference runs."""
+    gc.collect()
+
+def _resize_for_inference(img_np, max_dim=640):
+    """Downscale longest side to max_dim before inference to cap RAM usage."""
+    h, w = img_np.shape[:2]
+    scale = min(max_dim / max(h, w), 1.0)
+    if scale < 1.0:
+        new_w, new_h = int(w * scale), int(h * scale)
+        return cv2.resize(img_np, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    return img_np
+
 def run_yolo_predict(model, img, conf_threshold, iou_thresh):
-    # Pass PIL image so YOLO handles colour/resize cleanly every run
-    pil_img = Image.fromarray(img)
-    results  = model.predict(
+    # Shrink image first so each model run uses ~4x less RAM
+    small   = _resize_for_inference(img, max_dim=640)
+    pil_img = Image.fromarray(small)
+    results = model.predict(
         source=pil_img,
-        imgsz=1024,
+        imgsz=640,
         conf=conf_threshold,
         iou=iou_thresh,
         retina_masks=True,
         verbose=False,
     )
     result = results[0]
-    # Move tensors to CPU immediately so they survive Streamlit reruns
+    # Pull everything to CPU and delete the results list immediately
     if result.boxes is not None:
         result.boxes = result.boxes.cpu()
     if result.masks is not None:
         result.masks = result.masks.cpu()
+    del results
+    _free_memory()
     return result
 
 # =========================================================
@@ -259,12 +276,12 @@ def create_clean_mask(res_crack, orig_h, orig_w):
 # =========================================================
 # DRAW RESULTS
 # =========================================================
-def draw_combined_results(img, res_coin, crack_mask, width_mm=None, max_width_point=None):
+def draw_combined_results(img, coin_boxes, crack_mask, width_mm=None, max_width_point=None):
     output = img.copy()
 
-    # Coin bounding box
-    if res_coin is not None and res_coin.boxes is not None and len(res_coin.boxes) > 0:
-        for box in res_coin.boxes.xyxy.cpu().numpy():
+    # Coin bounding box — coin_boxes is a plain Python list of [x1,y1,x2,y2]
+    if coin_boxes:
+        for box in coin_boxes:
             x1, y1, x2, y2 = map(int, box)
             cv2.rectangle(output, (x1, y1), (x2, y2), (0, 255, 0), 3)
             cv2.putText(output, "Coin", (x1, y1 - 10),
@@ -312,6 +329,24 @@ uploaded_file = st.file_uploader(
 )
 
 # =========================================================
+# AUTO CLEANUP: wipe previous run's data when a new image arrives
+# =========================================================
+current_id = id(uploaded_file) if uploaded_file is not None else None
+
+if "last_file_id" not in st.session_state:
+    st.session_state.last_file_id = None
+
+if current_id != st.session_state.last_file_id:
+    # New image detected — clear everything from the previous run
+    for key in ["result_image", "combined_mask", "coin_boxes",
+                "avg_conf", "mask_coverage", "width_mm",
+                "mm_per_pixel", "coin_px", "crack_px", "max_width_point"]:
+        if key in st.session_state:
+            del st.session_state[key]
+    _free_memory()
+    st.session_state.last_file_id = current_id
+
+# =========================================================
 # PROCESS IMAGE
 # =========================================================
 if uploaded_file:
@@ -321,19 +356,32 @@ if uploaded_file:
     st.image(img_np, caption="Uploaded image", width="stretch")
 
     try:
-        # Load models
+        # Load models (cached — only loads once ever)
         with st.status("Loading AI models…") as status:
             crack_model = get_model("crack_model.pt", CRACK_MODEL_PATH)
             coin_model  = get_model("coin_model.pt",  COIN_MODEL_PATH)
             status.update(label="Models loaded successfully.", state="complete")
 
-        # Run inference — each model isolated so one failure doesn't kill the other
+        # --- Coin model ---
         try:
             res_coin = run_yolo_predict(coin_model, img_np, confidence_threshold, iou_threshold)
         except Exception as e:
             st.warning(f"Coin detection failed: {e}")
             res_coin = None
 
+        # Extract what we need from coin result immediately, then free it
+        coin_px    = None
+        coin_boxes = []   # kept only for drawing
+        if res_coin is not None and res_coin.boxes is not None and len(res_coin.boxes) > 0:
+            boxes      = res_coin.boxes.xyxy.cpu().numpy()
+            coin_boxes = boxes.tolist()
+            largest    = max(boxes, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
+            x1, y1, x2, y2 = map(int, largest)
+            coin_px    = ((x2 - x1) + (y2 - y1)) / 2
+        del res_coin
+        _free_memory()   # free coin tensors before crack model runs
+
+        # --- Crack model ---
         try:
             res_crack = run_yolo_predict(crack_model, img_np, confidence_threshold, iou_threshold)
         except Exception as e:
@@ -341,20 +389,16 @@ if uploaded_file:
             st.stop()
 
         # -------------------------------------------------
-        # COIN DETECTION → scale factor
-        # -------------------------------------------------
-        coin_px = None
-        if res_coin is not None and res_coin.boxes is not None and len(res_coin.boxes) > 0:
-            boxes      = res_coin.boxes.xyxy.cpu().numpy()
-            largest    = max(boxes, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
-            x1, y1, x2, y2 = map(int, largest)
-            coin_px    = ((x2 - x1) + (y2 - y1)) / 2
-
-        # -------------------------------------------------
-        # CRACK SEGMENTATION → mask + width
+        # CRACK SEGMENTATION → extract everything to numpy, then free
         # -------------------------------------------------
         orig_h, orig_w  = img_np.shape[:2]
         combined_mask   = create_clean_mask(res_crack, orig_h, orig_w)
+        avg_conf = None
+        if res_crack.boxes is not None and len(res_crack.boxes) > 0:
+            avg_conf = float(res_crack.boxes.conf.cpu().numpy().mean())
+        del res_crack
+        _free_memory()
+
         crack_px        = None
         max_width_point = None
         if combined_mask is not None:
@@ -377,7 +421,7 @@ if uploaded_file:
         # ANNOTATED IMAGE
         # -------------------------------------------------
         result_image = draw_combined_results(
-            img_np, res_coin, combined_mask, width_mm, max_width_point
+            img_np, coin_boxes, combined_mask, width_mm, max_width_point
         )
         st.subheader("Detection Output")
         st.image(result_image, caption="AI-annotated result", width="stretch")
@@ -387,11 +431,8 @@ if uploaded_file:
 
         # -------------------------------------------------
         # METRICS — actual model outputs, not slider values
+        # avg_conf already extracted before res_crack was freed above
         # -------------------------------------------------
-        avg_conf = None
-        if res_crack.boxes is not None and len(res_crack.boxes) > 0:
-            confidences = res_crack.boxes.conf.cpu().numpy()
-            avg_conf    = float(np.mean(confidences))
 
         mask_coverage = None
         if combined_mask is not None:
