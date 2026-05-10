@@ -201,15 +201,23 @@ def get_model(local_name, repo_path):
 # YOLO PREDICTION
 # =========================================================
 def run_yolo_predict(model, img, conf_threshold, iou_thresh):
-    results = model.predict(
-        source=img,
+    # Pass PIL image so YOLO handles colour/resize cleanly every run
+    pil_img = Image.fromarray(img)
+    results  = model.predict(
+        source=pil_img,
         imgsz=1024,
         conf=conf_threshold,
         iou=iou_thresh,
         retina_masks=True,
         verbose=False,
     )
-    return results[0]
+    result = results[0]
+    # Move tensors to CPU immediately so they survive Streamlit reruns
+    if result.boxes is not None:
+        result.boxes = result.boxes.cpu()
+    if result.masks is not None:
+        result.masks = result.masks.cpu()
+    return result
 
 # =========================================================
 # WIDTH CALCULATION
@@ -226,7 +234,7 @@ def mask_max_width_pixels(mask):
 # =========================================================
 # CLEAN MASK
 # =========================================================
-def create_clean_mask(res_crack):
+def create_clean_mask(res_crack, orig_h, orig_w):
     if res_crack.masks is None:
         return None
     masks = res_crack.masks.data.cpu().numpy()
@@ -241,6 +249,11 @@ def create_clean_mask(res_crack):
     kernel = np.ones((3, 3), np.uint8)
     combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_CLOSE, kernel)
     combined_mask = cv2.medianBlur(combined_mask, 5)
+    # Resize mask to match the original image so overlays align correctly
+    if combined_mask.shape[0] != orig_h or combined_mask.shape[1] != orig_w:
+        combined_mask = cv2.resize(
+            combined_mask, (orig_w, orig_h), interpolation=cv2.INTER_NEAREST
+        )
     return combined_mask
 
 # =========================================================
@@ -250,7 +263,7 @@ def draw_combined_results(img, res_coin, crack_mask, width_mm=None, max_width_po
     output = img.copy()
 
     # Coin bounding box
-    if res_coin.boxes is not None and len(res_coin.boxes) > 0:
+    if res_coin is not None and res_coin.boxes is not None and len(res_coin.boxes) > 0:
         for box in res_coin.boxes.xyxy.cpu().numpy():
             x1, y1, x2, y2 = map(int, box)
             cv2.rectangle(output, (x1, y1), (x2, y2), (0, 255, 0), 3)
@@ -314,15 +327,24 @@ if uploaded_file:
             coin_model  = get_model("coin_model.pt",  COIN_MODEL_PATH)
             status.update(label="Models loaded successfully.", state="complete")
 
-        # Run inference
-        res_coin  = run_yolo_predict(coin_model,  img_np, confidence_threshold, iou_threshold)
-        res_crack = run_yolo_predict(crack_model, img_np, confidence_threshold, iou_threshold)
+        # Run inference — each model isolated so one failure doesn't kill the other
+        try:
+            res_coin = run_yolo_predict(coin_model, img_np, confidence_threshold, iou_threshold)
+        except Exception as e:
+            st.warning(f"Coin detection failed: {e}")
+            res_coin = None
+
+        try:
+            res_crack = run_yolo_predict(crack_model, img_np, confidence_threshold, iou_threshold)
+        except Exception as e:
+            st.error(f"Crack detection failed: {e}")
+            st.stop()
 
         # -------------------------------------------------
         # COIN DETECTION → scale factor
         # -------------------------------------------------
         coin_px = None
-        if res_coin.boxes is not None and len(res_coin.boxes) > 0:
+        if res_coin is not None and res_coin.boxes is not None and len(res_coin.boxes) > 0:
             boxes      = res_coin.boxes.xyxy.cpu().numpy()
             largest    = max(boxes, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
             x1, y1, x2, y2 = map(int, largest)
@@ -331,7 +353,8 @@ if uploaded_file:
         # -------------------------------------------------
         # CRACK SEGMENTATION → mask + width
         # -------------------------------------------------
-        combined_mask   = create_clean_mask(res_crack)
+        orig_h, orig_w  = img_np.shape[:2]
+        combined_mask   = create_clean_mask(res_crack, orig_h, orig_w)
         crack_px        = None
         max_width_point = None
         if combined_mask is not None:
