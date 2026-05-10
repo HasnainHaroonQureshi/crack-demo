@@ -66,7 +66,6 @@ confidence_threshold = st.sidebar.slider(
     step=0.05,
 )
 
-# NOTE: IoU slider kept for model NMS control (not displayed as metric)
 iou_threshold = st.sidebar.slider(
     "IoU Threshold",
     min_value=0.1,
@@ -105,7 +104,7 @@ manual_mm_per_pixel = st.sidebar.number_input(
 
 
 # =========================================================
-# DOWNLOAD MODEL FROM GITHUB
+# DOWNLOAD MODEL
 # =========================================================
 def download_from_github(repo, filepath, dest_path):
     headers = {}
@@ -127,7 +126,7 @@ def download_from_github(repo, filepath, dest_path):
 
 
 # =========================================================
-# LOAD YOLO MODELS
+# LOAD MODEL
 # =========================================================
 @st.cache_resource
 def get_model(local_name, repo_path):
@@ -169,13 +168,10 @@ def mask_max_width_pixels(mask):
     mask = (mask > 0).astype(np.uint8)
     dist = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
 
-    max_radius = dist.max()
-    max_width = max_radius * 2
-
     max_loc = np.unravel_index(np.argmax(dist), dist.shape)
     y, x = max_loc
 
-    return max_width, (x, y)
+    return dist.max() * 2, (x, y)
 
 
 # =========================================================
@@ -189,23 +185,23 @@ def create_clean_mask(res_crack):
     if len(masks) == 0:
         return None
 
-    combined_mask = np.zeros(masks[0].shape, dtype=np.uint8)
+    combined = np.zeros((masks[0].shape[0], masks[0].shape[1]), dtype=np.uint8)
 
     for mask in masks:
         binary = (mask > 0.5).astype(np.uint8) * 255
-        combined_mask = cv2.bitwise_or(combined_mask, binary)
+        combined = cv2.bitwise_or(combined, binary)
 
     kernel = np.ones((3, 3), np.uint8)
-    combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_CLOSE, kernel)
-    combined_mask = cv2.medianBlur(combined_mask, 5)
+    combined = cv2.morphologyEx(combined, cv2.MORPH_CLOSE, kernel)
+    combined = cv2.medianBlur(combined, 5)
 
-    return combined_mask
+    return combined
 
 
 # =========================================================
 # DRAW RESULTS
 # =========================================================
-def draw_combined_results(img, res_coin, crack_mask, width_mm, max_width_point):
+def draw_combined_results(img, res_coin, crack_mask, width_mm=None, max_width_point=None):
     output = img.copy()
 
     if res_coin.boxes is not None and len(res_coin.boxes) > 0:
@@ -214,18 +210,18 @@ def draw_combined_results(img, res_coin, crack_mask, width_mm, max_width_point):
             cv2.rectangle(output, (x1, y1), (x2, y2), (0, 255, 0), 3)
 
     if crack_mask is not None:
-        red_mask = np.zeros_like(output)
-        red_mask[:, :, 2] = crack_mask
-        output = cv2.addWeighted(output, 1.0, red_mask, 0.4, 0)
+        red = np.zeros_like(output)
+        red[:, :, 2] = crack_mask
+        output = cv2.addWeighted(output, 1.0, red, 0.4, 0)
 
     if max_width_point is not None:
         x, y = max_width_point
-        cv2.circle(output, (x, y), 10, (0, 255, 0), -1)
+        cv2.circle(output, (x, y), 8, (0, 255, 0), -1)
 
     if width_mm is not None:
         cv2.putText(
             output,
-            f"Width: {width_mm:.2f} mm",
+            f"{width_mm:.2f} mm",
             (30, 50),
             cv2.FONT_HERSHEY_SIMPLEX,
             1.2,
@@ -237,98 +233,85 @@ def draw_combined_results(img, res_coin, crack_mask, width_mm, max_width_point):
 
 
 # =========================================================
-# MAIN UI
+# APP
 # =========================================================
 st.title("🏗️ StructInsight AI")
 
-uploaded_file = st.file_uploader("Upload Concrete Image", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
     image = Image.open(uploaded_file).convert("RGB")
     img_np = np.array(image)
 
-    st.image(img_np, caption="Uploaded Image", width="stretch")
+    st.image(img_np, caption="Input Image", width="stretch")
 
     try:
-        with st.status("Loading AI Models..."):
+        with st.status("Loading models..."):
             crack_model = get_model("crack_model.pt", CRACK_MODEL_PATH)
             coin_model = get_model("coin_model.pt", COIN_MODEL_PATH)
 
         res_coin = run_yolo_predict(coin_model, img_np, confidence_threshold, iou_threshold)
         res_crack = run_yolo_predict(crack_model, img_np, confidence_threshold, iou_threshold)
 
-        # COIN
+        # =====================================================
+        # MAX CONFIDENCE (REAL VALUE)
+        # =====================================================
+        max_conf = None
+        if res_crack.boxes is not None and len(res_crack.boxes) > 0:
+            max_conf = float(np.max(res_crack.boxes.conf.cpu().numpy()))
+
         coin_px = None
         if res_coin.boxes is not None and len(res_coin.boxes) > 0:
             boxes = res_coin.boxes.xyxy.cpu().numpy()
             b = max(boxes, key=lambda x: (x[2]-x[0])*(x[3]-x[1]))
             x1, y1, x2, y2 = map(int, b)
-            coin_px = ((x2-x1) + (y2-y1)) / 2
+            coin_px = ((x2-x1)+(y2-y1))/2
 
-        # CRACK
-        combined_mask = create_clean_mask(res_crack)
+        mask = create_clean_mask(res_crack)
         crack_px = None
-        max_width_point = None
+        max_pt = None
 
-        if combined_mask is not None:
-            crack_px, max_width_point = mask_max_width_pixels(combined_mask)
+        if mask is not None:
+            crack_px, max_pt = mask_max_width_pixels(mask)
 
-        # CALIBRATION
-        width_mm = None
         mm_per_pixel = None
-
         if use_manual_calibration:
             mm_per_pixel = manual_mm_per_pixel
-        elif coin_px is not None:
+        elif coin_px:
             mm_per_pixel = coin_diameter_mm / coin_px
 
+        width_mm = None
         if mm_per_pixel and crack_px:
             width_mm = crack_px * mm_per_pixel * calibration_factor
 
-        # OUTPUT IMAGE
-        result_image = draw_combined_results(
-            img_np, res_coin, combined_mask, width_mm, max_width_point
-        )
+        result = draw_combined_results(img_np, res_coin, mask, width_mm, max_pt)
 
-        st.image(result_image, caption="Detection Result", width="stretch")
+        st.subheader("Result")
+        st.image(result, width="stretch")
 
-        # =================================================
-        # METRICS (NO IOU)
-        # =================================================
-
-        avg_conf = None
-        conf_list = []
-
-        if res_crack.boxes is not None and len(res_crack.boxes) > 0:
-            conf_list.extend(res_crack.boxes.conf.cpu().numpy())
-
-        if res_coin.boxes is not None and len(res_coin.boxes) > 0:
-            conf_list.extend(res_coin.boxes.conf.cpu().numpy())
-
-        if conf_list:
-            avg_conf = float(np.mean(conf_list))
-
-        seg_score = None
-        if combined_mask is not None:
-            seg_score = np.sum(combined_mask > 0) / combined_mask.size
-
-        c1, c2, c3 = st.columns(3)
+        # =====================================================
+        # METRICS
+        # =====================================================
+        c1, c2 = st.columns(2)
 
         with c1:
-            st.metric("Model Confidence", f"{avg_conf:.2f}" if avg_conf else "N/A")
+            st.metric("Model Confidence", f"{max_conf:.2f}" if max_conf else "N/A")
 
         with c2:
-            st.metric("Crack Coverage", f"{seg_score:.4f}" if seg_score else "N/A")
+            st.metric("Calibration", f"{mm_per_pixel:.4f} mm/pixel" if mm_per_pixel else "N/A")
+
+        c3, c4 = st.columns(2)
 
         with c3:
-            st.metric("Calibration", f"{mm_per_pixel:.4f}" if mm_per_pixel else "N/A")
+            st.metric("Calibration Factor", f"{calibration_factor:.2f}")
 
-        # WIDTH
-        if width_mm:
-            st.success(f"Estimated Crack Width: {width_mm:.2f} mm")
+        with c4:
+            st.metric("Crack Width", f"{width_mm:.2f} mm" if width_mm else "N/A")
 
     except Exception as e:
-        st.error(str(e))
+        st.error(f"Error: {e}")
+
+
 
 # =========================================================
 # ABOUT SECTION
