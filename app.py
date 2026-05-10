@@ -4,7 +4,6 @@ import cv2
 import numpy as np
 import requests
 import streamlit as st
-import torch
 from PIL import Image
 from ultralytics import YOLO
 
