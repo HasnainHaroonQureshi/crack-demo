@@ -21,24 +21,25 @@ CACHE_DIR.mkdir(exist_ok=True)
 
 # ---------- Helper: Download from private GitHub ----------
 def download_from_github(repo, filepath, dest_path):
-    """Downloads large files from a private repo using a Personal Access Token."""
-    # This URL format includes the token for authentication
-    url = f"https://{GITHUB_TOKEN}@://githubusercontent.com{repo}/main/{filepath}"
-    
-    r = requests.get(url, stream=True)
+    headers = {
+        "Authorization": f"token {GITHUB_TOKEN}"
+    }
+
+    url = f"https://raw.githubusercontent.com/{repo}/main/{filepath}"
+
+    r = requests.get(url, headers=headers, stream=True)
+
     if r.status_code != 200:
-        # Fallback to 'master' if your branch isn't 'main'
-        url_master = url.replace("/main/", "/master/")
-        r = requests.get(url_master, stream=True)
-        
+        url = f"https://raw.githubusercontent.com/{repo}/master/{filepath}"
+        r = requests.get(url, headers=headers, stream=True)
+
     if r.status_code == 200:
         with open(dest_path, "wb") as f:
             for chunk in r.iter_content(chunk_size=8192):
                 f.write(chunk)
         return dest_path
-    else:
-        raise RuntimeError(f"Download failed: {r.status_code}. Check your Token and Repo name.")
 
+    raise RuntimeError(f"Download failed: {r.status_code}")
 # ---------- Load model (with caching) ----------
 @st.cache_resource
 def get_model(local_name, repo_path):
@@ -96,10 +97,10 @@ if uploaded_file:
             coin_px = x2 - x1
 
         crack_px = None
-        if res_crack.masks is not None:
-            mask_data = res_crack.masks.data.cpu().numpy()[0]
-            mask_uint8 = (mask_data * 255).astype("uint8")
-            crack_px = mask_max_width_pixels(mask_uint8)
+        if res_crack.masks is not None and len(res_crack.masks.data) > 0:
+                mask_data = res_crack.masks.data.cpu().numpy()[0]
+                mask_uint8 = (mask_data * 255).astype("uint8")
+                crack_px = mask_max_width_pixels(mask_uint8)
         
         if coin_px and crack_px:
             mm_per_pixel = COIN_DIAMETER_MM / coin_px
