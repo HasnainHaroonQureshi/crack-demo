@@ -9,6 +9,16 @@ from pathlib import Path
 from ultralytics import YOLO
 
 # =========================================================
+# PAGE CONFIG
+# =========================================================
+
+st.set_page_config(
+    page_title="Concrete Crack Detection AI",
+    page_icon="🏗️",
+    layout="wide"
+)
+
+# =========================================================
 # CONFIG
 # =========================================================
 
@@ -25,12 +35,62 @@ COIN_MODEL_PATH = st.secrets.get(
     "Coindetection_model.pt"
 )
 
-COIN_DIAMETER_MM = float(
+DEFAULT_COIN_DIAMETER_MM = float(
     st.secrets.get("coin_diameter_mm", "18.5")
 )
 
 CACHE_DIR = Path("models_cache")
 CACHE_DIR.mkdir(exist_ok=True)
+
+# =========================================================
+# SIDEBAR SETTINGS
+# =========================================================
+
+st.sidebar.title("⚙️ Detection Settings")
+
+coin_diameter_mm = st.sidebar.number_input(
+    "Coin Diameter (mm)",
+    min_value=1.0,
+    max_value=100.0,
+    value=DEFAULT_COIN_DIAMETER_MM,
+    step=0.1
+)
+
+confidence_threshold = st.sidebar.slider(
+    "Confidence Threshold",
+    min_value=0.05,
+    max_value=1.0,
+    value=0.25,
+    step=0.05
+)
+
+iou_threshold = st.sidebar.slider(
+    "IoU Threshold",
+    min_value=0.1,
+    max_value=1.0,
+    value=0.45,
+    step=0.05
+)
+
+# =========================================================
+# CALIBRATION SETTINGS
+# =========================================================
+
+st.sidebar.title("📏 Calibration")
+
+use_manual_calibration = st.sidebar.checkbox(
+    "Use Manual Calibration",
+    value=False
+)
+
+manual_mm_per_pixel = st.sidebar.number_input(
+    "Manual mm/pixel Calibration",
+    min_value=0.0001,
+    max_value=10.0,
+    value=0.05,
+    step=0.001,
+    format="%.4f"
+)
 
 # =========================================================
 # DOWNLOAD MODEL FROM PRIVATE GITHUB
@@ -72,6 +132,7 @@ def get_model(local_name, repo_path):
     local_file = CACHE_DIR / local_name
 
     if not local_file.exists():
+
         download_from_github(
             PRIVATE_REPO,
             repo_path,
@@ -84,12 +145,18 @@ def get_model(local_name, repo_path):
 # YOLO PREDICTION
 # =========================================================
 
-def run_yolo_predict(model, img):
+def run_yolo_predict(
+    model,
+    img,
+    conf_threshold,
+    iou_thresh
+):
 
     results = model.predict(
         source=img,
         imgsz=1024,
-        conf=0.25,
+        conf=conf_threshold,
+        iou=iou_thresh,
         retina_masks=True,
         verbose=False
     )
@@ -97,7 +164,7 @@ def run_yolo_predict(model, img):
     return results[0]
 
 # =========================================================
-# IMPROVED WIDTH CALCULATION
+# WIDTH CALCULATION
 # =========================================================
 
 def mask_max_width_pixels(mask):
@@ -115,7 +182,7 @@ def mask_max_width_pixels(mask):
     return max_width
 
 # =========================================================
-# COMBINE ALL CRACK MASKS
+# CLEAN MASK
 # =========================================================
 
 def create_clean_mask(res_crack):
@@ -138,14 +205,15 @@ def create_clean_mask(res_crack):
 
     for mask in masks:
 
-        binary = (mask > 0.5).astype(np.uint8) * 255
+        binary = (
+            mask > 0.5
+        ).astype(np.uint8) * 255
 
         combined_mask = cv2.bitwise_or(
             combined_mask,
             binary
         )
 
-    # Morphological cleanup
     kernel = np.ones((3, 3), np.uint8)
 
     combined_mask = cv2.morphologyEx(
@@ -162,7 +230,7 @@ def create_clean_mask(res_crack):
     return combined_mask
 
 # =========================================================
-# DRAW COMBINED RESULTS
+# DRAW RESULTS
 # =========================================================
 
 def draw_combined_results(
@@ -174,8 +242,7 @@ def draw_combined_results(
 
     output = img.copy()
 
-    # ---------------- COIN BOX ----------------
-
+    # Coin Boxes
     if len(res_coin.boxes) > 0:
 
         for box in res_coin.boxes.xyxy.cpu().numpy():
@@ -200,8 +267,7 @@ def draw_combined_results(
                 2
             )
 
-    # ---------------- CRACK MASK ----------------
-
+    # Crack Mask
     if crack_mask is not None:
 
         red_mask = np.zeros_like(output)
@@ -216,8 +282,7 @@ def draw_combined_results(
             0
         )
 
-    # ---------------- WIDTH TEXT ----------------
-
+    # Width Text
     if width_mm is not None:
 
         cv2.putText(
@@ -233,27 +298,21 @@ def draw_combined_results(
     return output
 
 # =========================================================
-# STREAMLIT UI
+# MAIN TITLE
 # =========================================================
 
-st.set_page_config(
-    page_title="Crack Width Measurement",
-    layout="wide"
-)
+st.title("🏗️ Concrete Crack Detection AI")
 
-st.title("🏗️ Crack Width Measurement")
+st.markdown("""
+AI-powered structural crack detection and severity assessment using YOLOv11 segmentation models.
+""")
 
-st.markdown(
-    """
-Upload an image containing:
-
-- A structural crack
-- A reference coin
-"""
-)
+# =========================================================
+# IMAGE UPLOAD
+# =========================================================
 
 uploaded_file = st.file_uploader(
-    "Upload Image",
+    "Upload Concrete Image",
     type=["jpg", "jpeg", "png"]
 )
 
@@ -269,14 +328,13 @@ if uploaded_file:
 
     st.image(
         img_np,
-        caption="Original Image",
+        caption="Uploaded Image",
         use_container_width=True
     )
 
     try:
 
-        # ---------------- LOAD MODELS ----------------
-
+        # Load Models
         with st.status(
             "Loading AI Models..."
         ) as status:
@@ -296,16 +354,19 @@ if uploaded_file:
                 state="complete"
             )
 
-        # ---------------- PREDICTIONS ----------------
-
+        # Predictions
         res_coin = run_yolo_predict(
             coin_model,
-            img_np
+            img_np,
+            confidence_threshold,
+            iou_threshold
         )
 
         res_crack = run_yolo_predict(
             crack_model,
-            img_np
+            img_np,
+            confidence_threshold,
+            iou_threshold
         )
 
         # =================================================
@@ -316,12 +377,12 @@ if uploaded_file:
 
         if len(res_coin.boxes) > 0:
 
-            # Largest coin
             boxes = res_coin.boxes.xyxy.cpu().numpy()
 
             largest_box = max(
                 boxes,
-                key=lambda b: (b[2] - b[0]) * (b[3] - b[1])
+                key=lambda b:
+                (b[2] - b[0]) * (b[3] - b[1])
             )
 
             x1, y1, x2, y2 = map(
@@ -329,7 +390,6 @@ if uploaded_file:
                 largest_box
             )
 
-            # Use average diameter
             coin_px = (
                 ((x2 - x1) + (y2 - y1)) / 2
             )
@@ -351,23 +411,28 @@ if uploaded_file:
             )
 
         # =================================================
-        # WIDTH CALCULATION
+        # CALIBRATION
         # =================================================
 
         width_mm = None
+        mm_per_pixel = None
 
-        if coin_px and crack_px:
+        if use_manual_calibration:
+
+            mm_per_pixel = manual_mm_per_pixel
+
+        elif coin_px:
 
             mm_per_pixel = (
-                COIN_DIAMETER_MM / coin_px
+                coin_diameter_mm / coin_px
             )
 
-            width_mm = (
-                crack_px * mm_per_pixel
-            )
+        if mm_per_pixel is not None and crack_px:
+
+            width_mm = crack_px * mm_per_pixel
 
         # =================================================
-        # DRAW FINAL RESULT
+        # DRAW RESULTS
         # =================================================
 
         result_image = draw_combined_results(
@@ -381,12 +446,41 @@ if uploaded_file:
 
         st.image(
             result_image,
-            caption="Combined AI Detection",
+            caption="AI Detection Output",
             use_container_width=True
         )
 
         # =================================================
-        # RESULTS
+        # METRICS
+        # =================================================
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+
+            st.metric(
+                "Confidence",
+                f"{confidence_threshold:.2f}"
+            )
+
+        with col2:
+
+            st.metric(
+                "IoU Threshold",
+                f"{iou_threshold:.2f}"
+            )
+
+        with col3:
+
+            if mm_per_pixel is not None:
+
+                st.metric(
+                    "Calibration",
+                    f"{mm_per_pixel:.4f} mm/pixel"
+                )
+
+        # =================================================
+        # WIDTH + SEVERITY
         # =================================================
 
         if width_mm is not None:
@@ -396,18 +490,85 @@ if uploaded_file:
                 f"{width_mm:.2f} mm"
             )
 
-            # Severity classification
-            if width_mm < 0.1:
-                severity = "Hairline (Safe)"
+            # Severity Classification
 
-            elif width_mm < 0.3:
-                severity = "Minor"
+            if width_mm < 0.1:
+
+                severity = "Hairline"
+
+                description = (
+                    "Barely visible; usually non-structural; "
+                    "monitor periodically."
+                )
+
+                recommendation = (
+                    "Routine monitoring recommended."
+                )
+
+            elif 0.1 <= width_mm < 0.3:
+
+                severity = "Minor / Fine"
+
+                description = (
+                    "Generally acceptable in dry/interior areas; "
+                    "surface sealing may be required in wet environments."
+                )
+
+                recommendation = (
+                    "Consider protective sealing if exposed to moisture."
+                )
+
+            elif 0.3 <= width_mm <= 0.5:
+
+                severity = "Moderate"
+
+                description = (
+                    "Exceeds most ACI crack-width limits; "
+                    "may indicate overstress or durability concerns."
+                )
+
+                recommendation = (
+                    "Engineering evaluation recommended."
+                )
 
             else:
-                severity = "Severe (Action Required)"
 
-            st.info(
-                f"Condition: **{severity}**"
+                severity = "Severe"
+
+                description = (
+                    "Significant distress with possible risk of "
+                    "corrosion or structural deterioration."
+                )
+
+                recommendation = (
+                    "Immediate repair required "
+                    "(e.g., epoxy injection or rehabilitation)."
+                )
+
+            st.subheader("Structural Condition Assessment")
+
+            c1, c2 = st.columns(2)
+
+            with c1:
+
+                st.metric(
+                    "Severity Level",
+                    severity
+                )
+
+            with c2:
+
+                st.metric(
+                    "Measured Width",
+                    f"{width_mm:.2f} mm"
+                )
+
+            st.warning(
+                f"**Description:** {description}"
+            )
+
+            st.success(
+                f"**Recommended Action:** {recommendation}"
             )
 
         else:
@@ -425,6 +586,54 @@ Possible reasons:
 
     except Exception as e:
 
-        st.error(
-            f"Error: {e}"
-        )
+        st.error(f"Error: {e}")
+
+# =========================================================
+# ABOUT SECTION
+# =========================================================
+
+st.markdown("---")
+
+st.header("📘 About the Project")
+
+st.markdown("""
+### Project Overview
+
+This project focuses on the development of an advanced deep learning system for automated crack detection and severity classification using **YOLOv11**. Traditional structural assessments require manual visual inspections, which can be time-consuming, subjective, and difficult to scale across large infrastructures.
+
+By leveraging state-of-the-art computer vision algorithms, **Concrete Crack Detection AI** achieves real-time detection capabilities with high precision. The system not only identifies cracks in concrete but also provides actionable insights through severity classification.
+
+This allows engineers and maintenance teams to:
+
+- Quickly assess structural integrity
+- Prioritize repair work
+- Reduce maintenance costs
+- Improve inspection efficiency
+- Enhance public safety
+
+This research highlights the critical importance of integrating AI technologies into civil engineering, showcasing how emerging tools can transform and modernize traditional infrastructure monitoring methods.
+""")
+
+st.markdown("---")
+
+st.header("👨‍🔬 Research Team")
+
+st.markdown("""
+### Project Lead
+**Hasnain Haroon**
+
+Developed as a Final Year Project (FYP) within the Department of Civil Engineering at COMSATS University Islamabad, Wah Campus.
+
+The project emphasizes practical implementation and collaboration in modern engineering education.
+
+---
+
+### Project Supervisor
+**Engr. Sandeerah Choudhary**
+
+---
+
+### Key Team Members
+- **Liza Liaqat**
+- **Ammar Faheem Khawaja**
+""")
