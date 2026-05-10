@@ -20,94 +20,305 @@ st.set_page_config(
 # =========================================================
 # CUSTOM CSS — professional engineering aesthetic
 # =========================================================
-st.markdown(
-    """
-    <style>
-    
+st.markdown("""
+<style>
+/* ── Reset & base ─────────────────────────────────────── */
+html, body, [class*="css"] {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #f0f2f6;
+}
 
-    /* System font stack — no external network requests */
-    html, body, [class*="css"] {
-        font-family: ui-sans-serif, 'Segoe UI', system-ui, -apple-system, sans-serif;
-    }
+/* ── Hide default Streamlit chrome ───────────────────── */
+#MainMenu, footer, header { visibility: hidden; }
+.block-container { padding-top: 0 !important; max-width: 1200px; }
 
-    /* Top header strip */
-    .main-header {
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-        border-left: 4px solid #f59e0b;
-        padding: 1.5rem 2rem;
-        border-radius: 4px;
-        margin-bottom: 1.5rem;
-    }
-    .main-header h1 {
-        color: #f8fafc;
-        font-size: 1.9rem;
-        font-weight: 600;
-        margin: 0;
-        letter-spacing: -0.5px;
-    }
-    .main-header p {
-        color: #94a3b8;
-        font-size: 0.85rem;
-        margin: 0.4rem 0 0;
-        font-weight: 300;
-    }
+/* ── HERO BANNER ─────────────────────────────────────── */
+.si-hero {
+    background: #0a0f1e;
+    background-image:
+        radial-gradient(ellipse 80% 60% at 20% 40%, rgba(56,189,248,0.08) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 80% at 80% 60%, rgba(251,191,36,0.06) 0%, transparent 60%);
+    padding: 2.8rem 3rem 2.4rem;
+    margin: -1rem -1rem 2rem;
+    position: relative;
+    overflow: hidden;
+}
+.si-hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+        90deg,
+        rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 1px,
+        transparent 1px, transparent 60px
+    ),
+    repeating-linear-gradient(
+        0deg,
+        rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 1px,
+        transparent 1px, transparent 60px
+    );
+}
+.si-hero-tag {
+    display: inline-block;
+    background: rgba(251,191,36,0.15);
+    border: 1px solid rgba(251,191,36,0.35);
+    color: #fbbf24;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    margin-bottom: 1rem;
+}
+.si-hero h1 {
+    color: #f8fafc;
+    font-size: 2.6rem;
+    font-weight: 800;
+    letter-spacing: -1px;
+    margin: 0 0 0.6rem;
+    line-height: 1.1;
+}
+.si-hero h1 span { color: #38bdf8; }
+.si-hero p {
+    color: #94a3b8;
+    font-size: 0.95rem;
+    font-weight: 400;
+    margin: 0;
+    max-width: 560px;
+    line-height: 1.6;
+}
+.si-hero-badges {
+    display: flex;
+    gap: 0.6rem;
+    margin-top: 1.4rem;
+    flex-wrap: wrap;
+}
+.si-badge {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #cbd5e1;
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    padding: 0.3rem 0.8rem;
+    border-radius: 4px;
+}
 
-    /* Section labels */
-    h2, h3 { color: #1e293b; font-weight: 600; }
+/* ── SECTION HEADERS ─────────────────────────────────── */
+.si-section {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 2rem 0 1rem;
+}
+.si-section-line {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, #e2e8f0, transparent);
+}
+.si-section-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #94a3b8;
+    white-space: nowrap;
+}
+.si-section-icon {
+    width: 28px; height: 28px;
+    background: #0f172a;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.85rem;
+    flex-shrink: 0;
+}
 
-    /* Metric cards */
-    [data-testid="metric-container"] {
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 6px;
-        padding: 0.8rem 1rem;
-        border-top: 3px solid #f59e0b;
-    }
-    [data-testid="stMetricLabel"] { color: #64748b !important; font-size: 0.78rem !important; text-transform: uppercase; letter-spacing: 0.05em; }
-    [data-testid="stMetricValue"] { color: #0f172a !important; font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace !important; font-size: 1.3rem !important; }
+/* ── UPLOAD ZONE ─────────────────────────────────────── */
+[data-testid="stFileUploader"] {
+    background: #ffffff;
+    border: 2px dashed #cbd5e1;
+    border-radius: 12px;
+    padding: 1rem;
+    transition: border-color 0.2s;
+}
+[data-testid="stFileUploader"]:hover { border-color: #38bdf8; }
+[data-testid="stFileUploaderDropzoneInstructions"] { color: #64748b !important; }
 
-    /* Dividers */
-    hr { border-color: #e2e8f0; }
+/* ── METRIC CARDS ────────────────────────────────────── */
+[data-testid="metric-container"] {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 1rem 1.25rem 1rem;
+    border-bottom: 3px solid #38bdf8;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+[data-testid="stMetricLabel"] {
+    color: #64748b !important;
+    font-size: 0.7rem !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.1em !important;
+}
+[data-testid="stMetricValue"] {
+    color: #0f172a !important;
+    font-size: 1.5rem !important;
+    font-weight: 700 !important;
+    font-variant-numeric: tabular-nums !important;
+}
 
-    /* Severity badge */
-    .severity-pill {
-        display: inline-block;
-        padding: 0.25rem 0.75rem;
-        border-radius: 999px;
-        font-size: 0.78rem;
-        font-weight: 600;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-    }
+/* ── IMAGE PANELS ────────────────────────────────────── */
+.si-img-panel {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 1rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.si-img-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #94a3b8;
+    margin-bottom: 0.6rem;
+}
+[data-testid="stImage"] img {
+    border-radius: 8px;
+}
 
-    /* Sidebar polish */
-    [data-testid="stSidebar"] {
-        background: #0f172a;
-    }
-    [data-testid="stSidebar"] * { color: #cbd5e1 !important; }
-    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2 { color: #f8fafc !important; font-size: 0.85rem !important; text-transform: uppercase; letter-spacing: 0.08em; border-bottom: 1px solid #1e293b; padding-bottom: 0.4rem; }
+/* ── SEVERITY CARD ───────────────────────────────────── */
+.si-severity-wrap {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    margin-bottom: 1rem;
+}
+.si-sev-header {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #94a3b8;
+    margin-bottom: 0.5rem;
+}
+.si-sev-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 1rem;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 0.8rem;
+}
+.si-sev-value {
+    font-size: 2.4rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    margin-bottom: 0.2rem;
+}
+.si-sev-unit { font-size: 1rem; font-weight: 500; color: #64748b; }
+.si-info-block {
+    background: #f8fafc;
+    border-left: 3px solid #e2e8f0;
+    border-radius: 0 6px 6px 0;
+    padding: 0.9rem 1rem;
+    margin-bottom: 0.6rem;
+    font-size: 0.88rem;
+    color: #475569;
+    line-height: 1.6;
+}
+.si-info-block strong { color: #0f172a; display: block; margin-bottom: 0.2rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; }
 
-    /* Caption / help text */
-    .caption-note {
-        color: #94a3b8;
-        font-size: 0.78rem;
-        margin-top: -0.5rem;
-    }
+/* ── ABOUT & TEAM CARDS ──────────────────────────────── */
+.si-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 1.5rem;
+    height: 100%;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    margin-bottom: 1rem;
+}
+.si-card-tag {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #38bdf8;
+    margin-bottom: 0.4rem;
+}
+.si-card h3 { margin: 0 0 0.75rem; color: #0f172a; font-size: 1rem; font-weight: 700; }
+.si-card p  { margin: 0; color: #475569; font-size: 0.875rem; line-height: 1.65; }
+.si-cap-row {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 0.75rem;
+}
+.si-cap {
+    background: #f0f9ff;
+    border: 1px solid #bae6fd;
+    color: #0369a1;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.2rem 0.6rem;
+    border-radius: 4px;
+}
+.si-ref-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.55rem 0; border-bottom: 1px solid #f1f5f9; }
+.si-ref-row:last-child { border-bottom: none; }
+.si-ref-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.si-ref-range { font-size: 0.78rem; color: #64748b; margin-left: auto; font-variant-numeric: tabular-nums; }
+.si-ref-label { font-size: 0.82rem; font-weight: 600; color: #0f172a; }
+.si-ref-action { font-size: 0.75rem; color: #94a3b8; }
 
-    /* About section */
-    .about-card {
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 6px;
-        padding: 1.25rem 1.5rem;
-        margin-bottom: 1rem;
-    }
-    .about-card h4 { margin: 0 0 0.25rem; color: #0f172a; font-weight: 600; }
-    .about-card p  { margin: 0; color: #475569; font-size: 0.88rem; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+.si-team-role { font-size: 0.65rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #38bdf8; margin-bottom: 0.3rem; }
+.si-team-name { font-size: 1rem; font-weight: 700; color: #0f172a; margin-bottom: 0.3rem; }
+.si-team-detail { font-size: 0.8rem; color: #64748b; line-height: 1.5; }
+.si-team-divider { width: 24px; height: 2px; background: #38bdf8; margin: 0.6rem 0; border-radius: 2px; }
+
+/* ── SIDEBAR ─────────────────────────────────────────── */
+[data-testid="stSidebar"] { background: #0a0f1e !important; border-right: 1px solid #1e293b; }
+[data-testid="stSidebar"] .stMarkdown p,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] .stSlider span,
+[data-testid="stSidebar"] .stNumberInput label { color: #94a3b8 !important; font-size: 0.82rem !important; }
+[data-testid="stSidebar"] h1 {
+    color: #f8fafc !important;
+    font-size: 0.7rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.14em !important;
+    text-transform: uppercase !important;
+    padding: 1rem 0 0.5rem !important;
+    border-bottom: 1px solid #1e293b !important;
+    margin-bottom: 0.75rem !important;
+}
+[data-testid="stSidebar"] .stSlider [data-baseweb="slider"] div[role="slider"] { background: #38bdf8 !important; }
+[data-testid="stSidebarContent"] { padding-top: 1.5rem; }
+
+/* ── STATUS / ALERTS ─────────────────────────────────── */
+[data-testid="stStatusWidget"] { border-radius: 8px; }
+.si-error {
+    background: #fff1f2;
+    border: 1px solid #fecdd3;
+    border-left: 3px solid #dc2626;
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    color: #9f1239;
+    font-size: 0.875rem;
+}
+
+/* ── DIVIDER ─────────────────────────────────────────── */
+hr { border: none; border-top: 1px solid #e2e8f0; margin: 2rem 0; }
+</style>
+""", unsafe_allow_html=True)
 
 # =========================================================
 # HELPERS
@@ -310,15 +521,19 @@ def draw_combined_results(img, coin_boxes, crack_mask, width_mm=None, max_width_
 # =========================================================
 # PAGE HEADER
 # =========================================================
-st.markdown(
-    """
-    <div class="main-header">
-        <h1>🏗️ StructInsight AI</h1>
-        <p>Automated structural crack detection &amp; severity assessment — powered by YOLOv11 instance segmentation</p>
+st.markdown("""
+<div class="si-hero">
+    <div class="si-hero-tag">⚡ AI-Powered Structural Analysis</div>
+    <h1>Struct<span>Insight</span> AI</h1>
+    <p>Automated concrete crack detection &amp; severity assessment using YOLOv11 instance segmentation. Upload an image with a reference coin for precise real-world measurements.</p>
+    <div class="si-hero-badges">
+        <span class="si-badge">🔬 YOLOv11 Segmentation</span>
+        <span class="si-badge">📐 Coin Calibration</span>
+        <span class="si-badge">📊 ACI 224R Severity Scale</span>
+        <span class="si-badge">🏛 COMSATS University Wah</span>
     </div>
-    """,
-    unsafe_allow_html=True,
-)
+</div>
+""", unsafe_allow_html=True)
 
 # =========================================================
 # IMAGE UPLOAD
@@ -353,7 +568,15 @@ if uploaded_file:
     image  = Image.open(uploaded_file).convert("RGB")
     img_np = np.array(image)
 
-    st.image(img_np, caption="Uploaded image", width="stretch")
+    st.markdown('''
+    <div class="si-section">
+        <div class="si-section-icon">📷</div>
+        <span class="si-section-label">Input Image</span>
+        <div class="si-section-line"></div>
+    </div>''', unsafe_allow_html=True)
+    st.markdown('<div class="si-img-panel"><div class="si-img-label">Uploaded Image</div>', unsafe_allow_html=True)
+    st.image(img_np, width="stretch")
+    st.markdown('</div>', unsafe_allow_html=True)
 
     try:
         # Load models (cached — only loads once ever)
@@ -423,11 +646,29 @@ if uploaded_file:
         result_image = draw_combined_results(
             img_np, coin_boxes, combined_mask, width_mm, max_width_point
         )
-        st.subheader("Detection Output")
-        st.image(result_image, caption="AI-annotated result", width="stretch")
+        st.markdown('''
+        <div class="si-section">
+            <div class="si-section-icon">🔍</div>
+            <span class="si-section-label">Detection Output</span>
+            <div class="si-section-line"></div>
+        </div>''', unsafe_allow_html=True)
 
-        st.markdown("---")
-        st.subheader("Analysis Metrics")
+        col_img_l, col_img_r = st.columns(2)
+        with col_img_l:
+            st.markdown('<div class="si-img-panel"><div class="si-img-label">Original</div>', unsafe_allow_html=True)
+            st.image(img_np, width="stretch")
+            st.markdown('</div>', unsafe_allow_html=True)
+        with col_img_r:
+            st.markdown('<div class="si-img-panel"><div class="si-img-label">AI Detection — Cracks Highlighted</div>', unsafe_allow_html=True)
+            st.image(result_image, width="stretch")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('''
+        <div class="si-section">
+            <div class="si-section-icon">📊</div>
+            <span class="si-section-label">Analysis Metrics</span>
+            <div class="si-section-line"></div>
+        </div>''', unsafe_allow_html=True)
 
         # -------------------------------------------------
         # METRICS — actual model outputs, not slider values
@@ -470,8 +711,12 @@ if uploaded_file:
         # SEVERITY ASSESSMENT
         # -------------------------------------------------
         if width_mm is not None:
-            st.markdown("---")
-            st.subheader("Structural Condition Assessment")
+            st.markdown('''
+            <div class="si-section">
+                <div class="si-section-icon">🏗</div>
+                <span class="si-section-label">Structural Condition Assessment</span>
+                <div class="si-section-line"></div>
+            </div>''', unsafe_allow_html=True)
 
             if width_mm < 0.1:
                 severity       = "Hairline"
@@ -505,38 +750,33 @@ if uploaded_file:
 
             c1, c2 = st.columns([1, 2])
             with c1:
-                st.markdown(
-                    f"""
-                    <div style="text-align:center; padding:1.5rem; background:#f8fafc;
-                         border:1px solid #e2e8f0; border-radius:6px; border-top:4px solid {badge_color};">
-                        <div style="font-size:0.72rem; text-transform:uppercase; letter-spacing:0.08em;
-                             color:#64748b; margin-bottom:0.4rem;">Severity Level</div>
-                        <div style="font-size:1.6rem; font-weight:700; color:{badge_color};">{severity}</div>
-                        <div style="font-size:1.1rem; color:#0f172a; margin-top:0.3rem;
-                             font-family:ui-monospace, 'Cascadia Code', 'Fira Code', monospace;">{width_mm:.2f} mm</div>
+                st.markdown(f"""
+                <div class="si-severity-wrap" style="border-top: 4px solid {badge_color};">
+                    <div class="si-sev-header">Severity Level</div>
+                    <div class="si-sev-badge" style="background:{badge_color}22; color:{badge_color}; border:1px solid {badge_color}55;">
+                        ● {severity}
                     </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+                    <div class="si-sev-value" style="color:{badge_color};">{width_mm:.2f}
+                        <span class="si-sev-unit">mm</span>
+                    </div>
+                    <div style="font-size:0.72rem; color:#94a3b8; margin-top:0.5rem;">Maximum crack width</div>
+                </div>
+                """, unsafe_allow_html=True)
             with c2:
-                st.markdown(
-                    f"""
-                    <div class="about-card">
-                        <h4>Condition Description</h4>
-                        <p>{description}</p>
-                    </div>
-                    <div class="about-card" style="border-left:3px solid {badge_color};">
-                        <h4>Recommended Action</h4>
-                        <p>{recommendation}</p>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+                st.markdown(f"""
+                <div class="si-info-block" style="border-left-color:{badge_color};">
+                    <strong>Condition</strong>{description}
+                </div>
+                <div class="si-info-block" style="border-left-color:{badge_color};">
+                    <strong>Recommended Action</strong>{recommendation}
+                </div>
+                """, unsafe_allow_html=True)
         else:
-            st.error(
-                "Width measurement unavailable. Possible causes: coin not detected, "
-                "crack not segmented, or poor image quality."
-            )
+            st.markdown('''
+            <div class="si-error">
+                ⚠️ Width measurement unavailable — coin not detected or crack not segmented.
+                Enable <strong>Manual Calibration</strong> in the sidebar to proceed without a reference coin.
+            </div>''', unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"Processing error: {e}")
@@ -544,78 +784,98 @@ if uploaded_file:
 # =========================================================
 # ABOUT SECTION
 # =========================================================
-st.markdown("---")
-st.header("About the Project")
+st.markdown("""
+<div class="si-section">
+    <div class="si-section-icon">📘</div>
+    <span class="si-section-label">About the Project</span>
+    <div class="si-section-line"></div>
+</div>
+""", unsafe_allow_html=True)
 
-st.markdown(
-    """
-    <div class="about-card">
-        <h4>Project Overview</h4>
+col_about_l, col_about_r = st.columns([3, 2])
+with col_about_l:
+    st.markdown("""
+    <div class="si-card">
+        <div class="si-card-tag">Project Overview</div>
+        <h3>AI-Powered Infrastructure Inspection</h3>
         <p>
         StructInsight AI applies <strong>YOLOv11 instance segmentation</strong> to automate the
-        detection and severity classification of structural cracks in concrete.
-        Traditional inspection methods are labour-intensive, subjective, and difficult to
-        scale across large infrastructure networks. By integrating computer vision into the
-        assessment workflow, the system delivers real-time, repeatable, and quantitative results
-        — enabling engineers to prioritise repairs, reduce maintenance costs, and improve
-        public safety outcomes.
+        detection and severity classification of structural cracks in concrete. Traditional inspection
+        methods are labour-intensive, subjective, and difficult to scale. By integrating computer vision
+        into the workflow, this system delivers real-time, repeatable, and quantitative results —
+        enabling engineers to prioritise repairs, reduce costs, and improve public safety.
         </p>
+        <div class="si-cap-row">
+            <span class="si-cap">Real-time Segmentation</span>
+            <span class="si-cap">Coin Calibration</span>
+            <span class="si-cap">ACI 224R Aligned</span>
+            <span class="si-cap">Field-Ready</span>
+        </div>
     </div>
-    """,
-    unsafe_allow_html=True,
-)
+    """, unsafe_allow_html=True)
 
-col_a, col_b = st.columns(2)
-with col_a:
-    st.markdown(
-        """
-        <div class="about-card">
-            <h4>Key Capabilities</h4>
-            <p>
-            • Real-time crack segmentation and width estimation<br>
-            • Coin-based automatic pixel-to-mm scale calibration<br>
-            • ACI 224R-aligned severity classification<br>
-            • Configurable confidence and IoU thresholds<br>
-            • Manual calibration fallback for fieldwork
-            </p>
+with col_about_r:
+    st.markdown("""
+    <div class="si-card">
+        <div class="si-card-tag">Severity Reference — ACI 224R</div>
+        <h3>Crack Width Classification</h3>
+        <div class="si-ref-row">
+            <div class="si-ref-dot" style="background:#16a34a;"></div>
+            <span class="si-ref-label">Hairline</span>
+            <span class="si-ref-action">Monitor only</span>
+            <span class="si-ref-range">&lt; 0.1 mm</span>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
-with col_b:
-    st.markdown(
-        """
-        <div class="about-card">
-            <h4>Severity Reference (ACI 224R)</h4>
-            <p>
-            <strong style="color:#16a34a;">Hairline</strong> — &lt; 0.1 mm — Monitor only<br>
-            <strong style="color:#ca8a04;">Minor</strong> — 0.1–0.3 mm — Protective sealing<br>
-            <strong style="color:#ea580c;">Moderate</strong> — 0.3–0.5 mm — Engineering review<br>
-            <strong style="color:#dc2626;">Severe</strong> — &gt; 0.5 mm — Immediate repair
-            </p>
+        <div class="si-ref-row">
+            <div class="si-ref-dot" style="background:#ca8a04;"></div>
+            <span class="si-ref-label">Minor</span>
+            <span class="si-ref-action">Protective seal</span>
+            <span class="si-ref-range">0.1 – 0.3 mm</span>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        <div class="si-ref-row">
+            <div class="si-ref-dot" style="background:#ea580c;"></div>
+            <span class="si-ref-label">Moderate</span>
+            <span class="si-ref-action">Engineering review</span>
+            <span class="si-ref-range">0.3 – 0.5 mm</span>
+        </div>
+        <div class="si-ref-row">
+            <div class="si-ref-dot" style="background:#dc2626;"></div>
+            <span class="si-ref-label">Severe</span>
+            <span class="si-ref-action">Immediate repair</span>
+            <span class="si-ref-range">&gt; 0.5 mm</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-st.markdown("---")
-st.header("Research Team")
+st.markdown("""
+<div class="si-section">
+    <div class="si-section-icon">👥</div>
+    <span class="si-section-label">Research Team</span>
+    <div class="si-section-line"></div>
+</div>
+""", unsafe_allow_html=True)
 
-team_cols = st.columns(3)
+t1, t2, t3 = st.columns(3)
 team = [
-    ("Project Lead",       "Hasnain Haroon",        "Final Year Project — Civil Engineering, COMSATS University Islamabad, Wah Campus"),
-    ("Supervisor",         "Engr. Sandeerah Choudhary", "Faculty Advisor, Department of Civil Engineering"),
-    ("Team Members",       "Liza Liaqat · Ammar Faheem Khawaja", "Contributing Researchers"),
+    (t1, "Project Lead", "Hasnain Haroon",
+     "Final Year Project — Department of Civil Engineering, COMSATS University Islamabad, Wah Campus"),
+    (t2, "Supervisor", "Engr. Sandeerah Choudhary",
+     "Faculty Advisor, Department of Civil Engineering"),
+    (t3, "Team Members", "Liza Liaqat · Ammar Faheem Khawaja",
+     "Contributing Researchers, Civil Engineering FYP 2025"),
 ]
-for col, (role, name, detail) in zip(team_cols, team):
+for col, role, name, detail in team:
     with col:
-        st.markdown(
-            f"""
-            <div class="about-card">
-                <div style="font-size:0.72rem; text-transform:uppercase; letter-spacing:0.08em; color:#64748b;">{role}</div>
-                <h4 style="margin-top:0.25rem;">{name}</h4>
-                <p>{detail}</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.markdown(f"""
+        <div class="si-card">
+            <div class="si-team-role">{role}</div>
+            <div class="si-team-divider"></div>
+            <div class="si-team-name">{name}</div>
+            <div class="si-team-detail">{detail}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+st.markdown("""
+<div style="text-align:center; padding: 2rem 0 1rem; color:#94a3b8; font-size:0.78rem;">
+    StructInsight AI · COMSATS University Islamabad, Wah Campus · Civil Engineering FYP 2025
+</div>
+""", unsafe_allow_html=True)
