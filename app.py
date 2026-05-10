@@ -9,6 +9,17 @@ import torch
 from PIL import Image
 from ultralytics import YOLO
 
+
+# =========================================================
+# PAGE CONFIG
+# =========================================================
+st.set_page_config(
+    page_title="StructInsight AI",
+    page_icon="🏗️",
+    layout="wide",
+)
+
+
 # =========================================================
 # HELPERS
 # =========================================================
@@ -157,7 +168,6 @@ def run_yolo_predict(model, img, conf_threshold, iou_thresh):
 # =========================================================
 def mask_max_width_pixels(mask):
     mask = (mask > 0).astype(np.uint8)
-
     dist = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
 
     max_radius = dist.max()
@@ -261,9 +271,6 @@ def draw_combined_results(
 # =========================================================
 # MAIN TITLE
 # =========================================================
-# =========================================================
-# MAIN TITLE
-# =========================================================
 st.title("🏗️ StructInsight AI")
 st.markdown(
     """
@@ -286,7 +293,7 @@ if uploaded_file:
     image = Image.open(uploaded_file).convert("RGB")
     img_np = np.array(image)
 
-    st.image(img_np, caption="Uploaded Image", use_container_width=True)
+    st.image(img_np, caption="Uploaded Image", width="stretch")
 
     try:
         # Load Models
@@ -364,7 +371,7 @@ if uploaded_file:
         )
 
         st.subheader("Detection Result")
-        st.image(result_image, caption="AI Detection Output", use_container_width=True)
+        st.image(result_image, caption="AI Detection Output", width="stretch")
 
         # =================================================
         # METRICS
@@ -402,9 +409,7 @@ if uploaded_file:
 
             if width_mm < 0.1:
                 severity = "Hairline"
-                description = (
-                    "Barely visible; usually non-structural; monitor periodically."
-                )
+                description = "Barely visible; usually non-structural; monitor periodically."
                 recommendation = "Routine monitoring recommended."
 
             elif 0.1 <= width_mm < 0.3:
@@ -413,9 +418,7 @@ if uploaded_file:
                     "Generally acceptable in dry/interior areas; "
                     "surface sealing may be required in wet environments."
                 )
-                recommendation = (
-                    "Consider protective sealing if exposed to moisture."
-                )
+                recommendation = "Consider protective sealing if exposed to moisture."
 
             elif 0.3 <= width_mm <= 0.5:
                 severity = "Moderate"
@@ -471,7 +474,7 @@ st.markdown(
 
 This project focuses on the development of an advanced deep learning system for automated crack detection and severity classification using **YOLOv11**. Traditional structural assessments require manual visual inspections, which can be time-consuming, subjective, and difficult to scale across large infrastructures.
 
-By leveraging state-of-the-art computer vision algorithms, **Concrete Crack Detection AI** achieves real-time detection capabilities with high precision. The system not only identifies cracks in concrete but also provides actionable insights through severity classification.
+By leveraging state-of-the-art computer vision algorithms, **StructInsight AI** achieves real-time detection capabilities with high precision. The system not only identifies cracks in concrete but also provides actionable insights through severity classification.
 
 This allows engineers and maintenance teams to:
 
