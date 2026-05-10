@@ -1,193 +1,119 @@
 import os
-import io
-import time
 import requests
-import tempfile
-from pathlib import Path
-
-import streamlit as st
-from PIL import Image
 import numpy as np
 import cv2
 import torch
-
-# Optional: ultralytics YOLO class (if your model is compatible)
-try:
-    from ultralytics import YOLO
-    ULTRALYTICS_AVAILABLE = True
-except Exception:
-    ULTRALYTICS_AVAILABLE = False
+import streamlit as st
+from PIL import Image
+from pathlib import Path
+from ultralytics import YOLO
 
 # ---------- CONFIG (set via Streamlit secrets) ----------
-GITHUB_USER = st.secrets.get("github_user")
+# Ensure these names match your "Secrets" in the Streamlit Dashboard
 GITHUB_TOKEN = st.secrets.get("github_token")
-PRIVATE_REPO = st.secrets.get("private_repo")  # e.g., "youruser/models-private"
+PRIVATE_REPO = st.secrets.get("private_repo")  
 CRACK_MODEL_PATH = st.secrets.get("crack_model_path", "Crackdetection_model.pt")
 COIN_MODEL_PATH  = st.secrets.get("coin_model_path", "Coindetection_model.pt")
-COIN_DIAMETER_MM = float(st.secrets.get("coin_diameter_mm", "18.5"))  # set actual coin diameter
+COIN_DIAMETER_MM = float(st.secrets.get("coin_diameter_mm", "18.5"))
 
 CACHE_DIR = Path("models_cache")
 CACHE_DIR.mkdir(exist_ok=True)
 
-# ---------- Helper: download file from private GitHub repo ----------
+# ---------- Helper: Download from private GitHub ----------
 def download_from_github(repo, filepath, dest_path):
-    """
-    Improved download for large model files using the 'Raw' URL.
-    """
-    # The improved URL format that includes the token directly
-    url = f"https://{GITHUB_TOKEN}@raw.githubusercontent.com/{repo}/main/{filepath}"
-
-    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    """Downloads large files from a private repo using a Personal Access Token."""
+    # This URL format includes the token for authentication
+    url = f"https://{GITHUB_TOKEN}@://githubusercontent.com{repo}/main/{filepath}"
     
-    r = requests.get(url, headers=headers, stream=True)
+    r = requests.get(url, stream=True)
     if r.status_code != 200:
-        raise RuntimeError(f"Download failed: {r.status_code}. Double-check your Token and File Names.")
-    
-    with open(dest_path, "wb") as f:
-        for chunk in r.iter_content(chunk_size=8192):
-            f.write(chunk)
-    return dest_path
-
-
+        # Fallback to 'master' if your branch isn't 'main'
+        url_master = url.replace("/main/", "/master/")
+        r = requests.get(url_master, stream=True)
+        
+    if r.status_code == 200:
+        with open(dest_path, "wb") as f:
+            for chunk in r.iter_content(chunk_size=8192):
+                f.write(chunk)
+        return dest_path
+    else:
+        raise RuntimeError(f"Download failed: {r.status_code}. Check your Token and Repo name.")
 
 # ---------- Load model (with caching) ----------
+@st.cache_resource
 def get_model(local_name, repo_path):
     local_file = CACHE_DIR / local_name
     if not local_file.exists():
-        with st.spinner(f"Downloading {local_name} from private repo..."):
-            download_from_github(PRIVATE_REPO, repo_path, local_file)
-    # Try ultralytics first
-    if ULTRALYTICS_AVAILABLE:
-        try:
-            model = YOLO(str(local_file))
-            return ("ultralytics", model)
-        except Exception:
-            pass
-    # Fallback to torch.load
-    model = torch.load(str(local_file), map_location="cpu")
-    model.eval()
-    return ("torch", model)
+        download_from_github(PRIVATE_REPO, repo_path, local_file)
+    return YOLO(str(local_file))
 
-# ---------- Inference helpers ----------
-def run_ultralytics_detect(model, img):
-    # model.predict returns results; adapt depending on ultralytics version
-    results = model.predict(source=img, imgsz=1024, conf=0.25, verbose=False)
-    # results is a list; take first
-    r = results[0]
-    # bounding boxes: r.boxes.xyxy, r.boxes.conf, r.boxes.cls
-    # masks: r.masks.data (if segmentation)
-    return r
+# ---------- Inference helper ----------
+def run_yolo_predict(model, img):
+    # LOWER CONFIDENCE (0.1) helps catch faint cracks
+    results = model.predict(source=img, imgsz=1024, conf=0.1, verbose=False)
+    return results[0]
 
-def run_torch_forward(model, img_tensor):
-    # This is a fallback; exact forward depends on how model was saved.
-    with torch.no_grad():
-        out = model(img_tensor)
-    return out
-
-# ---------- Utility: compute pixel width from segmentation mask ----------
+# ---------- Measurement Logic ----------
 def mask_max_width_pixels(mask):
-    """
-    mask: binary mask (H,W) uint8
-    returns: maximum width in pixels across mask (approximate)
-    """
-    # find contours
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     max_width = 0
     for cnt in contours:
-        x,y,w,h = cv2.boundingRect(cnt)
+        x, y, w, h = cv2.boundingRect(cnt)
         max_width = max(max_width, w)
     return max_width
 
-# ---------- Pixel to mm conversion ----------
-def pixels_to_mm(crack_pixels, coin_pixels, coin_diameter_mm):
-    if coin_pixels <= 0:
-        return None
-    return (crack_pixels / coin_pixels) * coin_diameter_mm
-
 # ---------- Streamlit UI ----------
-st.title("Crack Width Measurement (demo)")
+st.title("🏗️ Crack Width Measurement")
+st.markdown("Upload an image with a **crack** and a **reference coin**.")
 
-st.markdown("Upload an image containing a crack and a reference coin. The app detects the coin and the crack, then computes crack width in mm.")
+uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
 
-uploaded_file = st.file_uploader("Upload image", type=["jpg","jpeg","png"])
 if uploaded_file:
     image = Image.open(uploaded_file).convert("RGB")
     img_np = np.array(image)
-    st.image(image, caption="Input image", use_column_width=True)
+    st.image(image, caption="Original Image", use_container_width=True)
 
-    # Load models (cached)
     try:
-        status = st.empty()
-        status.text("Loading models (may take a few seconds)...")
-        crack_loader, crack_model = get_model("crack_model.pt", CRACK_MODEL_PATH)
-        coin_loader, coin_model   = get_model("coin_model.pt", COIN_MODEL_PATH)
-        status.text("Models loaded.")
+        with st.status("Loading private models...") as status:
+            crack_model = get_model("crack_model.pt", CRACK_MODEL_PATH)
+            coin_model = get_model("coin_model.pt", COIN_MODEL_PATH)
+            status.update(label="Models Ready!", state="complete")
+            
+        # --- PREDICTIONS ---
+        res_coin = run_yolo_predict(coin_model, img_np)
+        res_crack = run_yolo_predict(crack_model, img_np)
+
+        # --- DEBUG VIEW ---
+        st.subheader("🔍 Model Detections (Debug)")
+        col1, col2 = st.columns(2)
+        col1.image(res_coin.plot()[:,:,::-1], caption="Coin Detection", use_container_width=True)
+        col2.image(res_crack.plot()[:,:,::-1], caption="Crack Detection", use_container_width=True)
+
+        # --- CALCULATIONS ---
+        coin_px = None
+        if len(res_coin.boxes) > 0:
+            x1, y1, x2, y2 = res_coin.boxes.xyxy[0].cpu().numpy().astype(int)
+            coin_px = x2 - x1
+
+        crack_px = None
+        if res_crack.masks is not None:
+            mask_data = res_crack.masks.data.cpu().numpy()[0]
+            mask_uint8 = (mask_data * 255).astype("uint8")
+            crack_px = mask_max_width_pixels(mask_uint8)
+        
+        if coin_px and crack_px:
+            mm_per_pixel = COIN_DIAMETER_MM / coin_px
+            width_mm = crack_px * mm_per_pixel
+            
+            st.metric("Estimated Crack Width", f"{width_mm:.2f} mm")
+            
+            # Severity Rating
+            if width_mm < 0.1: severity = "Hairline (Safe)"
+            elif width_mm < 0.3: severity = "Minor"
+            else: severity = "Severe (Action Required)"
+            st.info(f"Condition: **{severity}**")
+        else:
+            st.error("⚠️ Detection Failed. Look at the 'Debug' images above to see which object was missed.")
+
     except Exception as e:
-        st.error(f"Failed to load models: {e}")
-        st.stop()
-
-    # Run coin detection
-    status.text("Running coin detection...")
-    coin_pixels = None
-    coin_box = None
-    if coin_loader == "ultralytics":
-        r = run_ultralytics_detect(coin_model, img_np)
-        # find coin class index or assume single detection
-        if hasattr(r, "boxes") and len(r.boxes) > 0:
-            xyxy = r.boxes.xyxy.cpu().numpy()
-            # take the largest box (by area)
-            areas = (xyxy[:,2]-xyxy[:,0])*(xyxy[:,3]-xyxy[:,1])
-            idx = int(np.argmax(areas))
-            x1,y1,x2,y2 = xyxy[idx].astype(int)
-            coin_box = (x1,y1,x2,y2)
-            coin_pixels = x2 - x1
-    else:
-        # Fallback: user must implement custom forward and parsing
-        st.warning("Coin model is not ultralytics-compatible; fallback not implemented in demo.")
-    # Run crack segmentation
-    status.text("Running crack segmentation...")
-    crack_pixels = None
-    if crack_loader == "ultralytics":
-        r = run_ultralytics_detect(crack_model, img_np)
-        # get mask (if available)
-        if hasattr(r, "masks") and r.masks is not None:
-            # r.masks.data is (N, H, W) or similar
-            mask_data = r.masks.data.cpu().numpy()
-            # choose largest mask
-            areas = mask_data.reshape(mask_data.shape[0], -1).sum(axis=1)
-            idx = int(np.argmax(areas))
-            mask = (mask_data[idx] * 255).astype("uint8")
-            # compute max width in pixels
-            crack_pixels = mask_max_width_pixels(mask)
-        else:
-            st.warning("No segmentation masks returned by crack model.")
-    else:
-        st.warning("Crack model is not ultralytics-compatible; fallback not implemented in demo.")
-
-    # Compute mm
-    if coin_pixels and crack_pixels:
-        width_mm = pixels_to_mm(crack_pixels, coin_pixels, COIN_DIAMETER_MM)
-        st.success(f"Estimated crack width: **{width_mm:.2f} mm**")
-        # severity example
-        if width_mm < 0.10:
-            severity = "Hairline"
-        elif width_mm < 0.30:
-            severity = "Minor"
-        elif width_mm < 0.50:
-            severity = "Moderate"
-        else:
-            severity = "Severe"
-        st.write(f"Severity: **{severity}**")
-        # Annotate and show image
-        vis = img_np.copy()
-        if coin_box:
-            x1,y1,x2,y2 = coin_box
-            cv2.rectangle(vis, (x1,y1), (x2,y2), (0,255,0), 2)
-            cv2.putText(vis, f"coin_px={coin_pixels}", (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,0), 2)
-        if 'mask' in locals():
-            color_mask = np.zeros_like(vis)
-            color_mask[mask>0] = (0,0,255)
-            vis = cv2.addWeighted(vis, 0.8, color_mask, 0.4, 0)
-        st.image(vis[:,:,::-1], caption="Annotated result", use_column_width=True)
-    else:
-        st.error("Could not compute width. Ensure coin and crack are visible and models are compatible.")
+        st.error(f"Error: {e}")
