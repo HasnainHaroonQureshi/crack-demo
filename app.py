@@ -72,6 +72,20 @@ iou_threshold = st.sidebar.slider(
     step=0.05
 )
 
+st.sidebar.title("🧪 Width Calibration")
+
+calibration_factor = st.sidebar.slider(
+    "Calibration Factor",
+    min_value=0.10,
+    max_value=3.00,
+    value=1.00,
+    step=0.01
+)
+
+st.sidebar.caption(
+    "Final Width = Measured Width × Calibration Factor"
+)
+
 # =========================================================
 # CALIBRATION SETTINGS
 # =========================================================
@@ -167,6 +181,10 @@ def run_yolo_predict(
 # WIDTH CALCULATION
 # =========================================================
 
+# =========================================================
+# WIDTH + MAX WIDTH LOCATION
+# =========================================================
+
 def mask_max_width_pixels(mask):
 
     mask = (mask > 0).astype(np.uint8)
@@ -177,10 +195,21 @@ def mask_max_width_pixels(mask):
         5
     )
 
-    max_width = dist.max() * 2
+    # Maximum radius
+    max_radius = dist.max()
 
-    return max_width
+    # Crack width
+    max_width = max_radius * 2
 
+    # Location of maximum width
+    max_loc = np.unravel_index(
+        np.argmax(dist),
+        dist.shape
+    )
+
+    y, x = max_loc
+
+    return max_width, (x, y)
 # =========================================================
 # CLEAN MASK
 # =========================================================
@@ -233,16 +262,24 @@ def create_clean_mask(res_crack):
 # DRAW RESULTS
 # =========================================================
 
+# =========================================================
+# DRAW RESULTS
+# =========================================================
+
 def draw_combined_results(
     img,
     res_coin,
     crack_mask,
-    width_mm=None
+    width_mm=None,
+    max_width_point=None
 ):
 
     output = img.copy()
 
-    # Coin Boxes
+    # =====================================================
+    # COIN BOX
+    # =====================================================
+
     if len(res_coin.boxes) > 0:
 
         for box in res_coin.boxes.xyxy.cpu().numpy():
@@ -267,7 +304,10 @@ def draw_combined_results(
                 2
             )
 
-    # Crack Mask
+    # =====================================================
+    # CRACK MASK
+    # =====================================================
+
     if crack_mask is not None:
 
         red_mask = np.zeros_like(output)
@@ -282,7 +322,38 @@ def draw_combined_results(
             0
         )
 
-    # Width Text
+    # =====================================================
+    # MAX WIDTH POINT
+    # =====================================================
+
+    if max_width_point is not None:
+
+        x, y = max_width_point
+
+        # Green dot
+        cv2.circle(
+            output,
+            (x, y),
+            10,
+            (0, 255, 0),
+            -1
+        )
+
+        # Label
+        cv2.putText(
+            output,
+            "Max Width",
+            (x + 15, y - 10),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 255, 0),
+            2
+        )
+
+    # =====================================================
+    # WIDTH TEXT
+    # =====================================================
+
     if width_mm is not None:
 
         cv2.putText(
@@ -296,7 +367,6 @@ def draw_combined_results(
         )
 
     return output
-
 # =========================================================
 # MAIN TITLE
 # =========================================================
@@ -403,12 +473,13 @@ if uploaded_file:
         )
 
         crack_px = None
+        max_width_point = None
 
         if combined_mask is not None:
 
-            crack_px = mask_max_width_pixels(
-                combined_mask
-            )
+            crack_px, max_width_point = mask_max_width_pixels(
+            combined_mask
+        )
 
         # =================================================
         # CALIBRATION
@@ -429,7 +500,11 @@ if uploaded_file:
 
         if mm_per_pixel is not None and crack_px:
 
-            width_mm = crack_px * mm_per_pixel
+        # Raw measured width
+        measured_width = crack_px * mm_per_pixel
+
+        # Calibrated width
+        width_mm = measured_width * calibration_factor
 
         # =================================================
         # DRAW RESULTS
@@ -439,7 +514,8 @@ if uploaded_file:
             img_np,
             res_coin,
             combined_mask,
-            width_mm
+            width_mm,
+            max_width_point
         )
 
         st.subheader("Detection Result")
@@ -479,6 +555,28 @@ if uploaded_file:
                     f"{mm_per_pixel:.4f} mm/pixel"
                 )
 
+
+# =================================================
+# WIDTH CALIBRATION INFO
+# =================================================
+
+col4, col5 = st.columns(2)
+
+with col4:
+
+    st.metric(
+        "Calibration Factor",
+        f"{calibration_factor:.2f}"
+    )
+
+with col5:
+
+    if width_mm is not None:
+
+        st.metric(
+            "Calibrated Width",
+            f"{width_mm:.2f} mm"
+        )
         # =================================================
         # WIDTH + SEVERITY
         # =================================================
