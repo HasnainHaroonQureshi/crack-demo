@@ -34,8 +34,9 @@ def download_from_github(repo, filepath, dest_path):
     """
     Improved download for large model files using the 'Raw' URL.
     """
-    # Use the ://githubusercontent.com URL for large binary files
-    url = f"https://githubusercontent.com{repo}/main/{filepath}"
+    # The improved URL format that includes the token directly
+    url = f"https://{GITHUB_TOKEN}@raw.githubusercontent.com/{repo}/main/{filepath}"
+
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
     
     r = requests.get(url, headers=headers, stream=True)
